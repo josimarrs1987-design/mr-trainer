@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="MR Trainer"/>
+<meta name="theme-color" content="#C9A800"/>
+<title>MR Trainer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0A0A0A;color:#fff;font-family:Arial,sans-serif;font-size:14px;min-height:100vh;}
+select,input,button,textarea{font-family:Arial,sans-serif;}
+::-webkit-scrollbar{width:3px;} ::-webkit-scrollbar-thumb{background:#C9A800;}
+.hdr{background:#111;border-bottom:2px solid #C9A800;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:50;}
+.logo{width:42px;height:42px;background:#C9A800;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:#000;flex-shrink:0;}
+.flabel{font-size:9px;color:#777;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.sec-title{font-size:10px;font-weight:700;color:#C9A800;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #2A2A2A;padding-bottom:6px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.full{grid-column:1/-1;}
+.field{display:flex;flex-direction:column;gap:4px;}
+.isel{background:#141414;color:#fff;border:1px solid #A88900;border-radius:8px;padding:9px 10px;outline:none;width:100%;font-size:13px;}
+.isel:focus{border-color:#C9A800;}
+.badge{display:inline-flex;align-items:center;border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700;margin-top:3px;}
+.ok{background:rgba(76,175,80,0.2);color:#4CAF50;border:1px solid rgba(76,175,80,0.3);}
+.warn{background:rgba(255,193,7,0.2);color:#FFC107;border:1px solid rgba(255,193,7,0.3);}
+.bad{background:rgba(244,67,54,0.2);color:#F44336;border:1px solid rgba(244,67,54,0.3);}
+.btn-gold{background:#C9A800;color:#000;border:none;border-radius:9px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer;}
+.btn-outline{background:none;border:1px solid #2A2A2A;color:#777;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:12px;}
+.btn-red{background:none;border:1px solid #F44336;color:#F44336;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:11px;}
+.btn-sm{background:#1C1C1C;border:1px solid #C9A800;color:#C9A800;border-radius:7px;padding:5px 10px;cursor:pointer;font-size:11px;font-weight:600;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow-y:auto;}
+.modal{background:#111;border:1px solid #C9A800;border-radius:14px;width:100%;max-width:540px;padding:16px;margin:auto;}
+.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+table{width:100%;border-collapse:collapse;}
+th{padding:7px 8px;font-size:9px;color:#C9A800;text-transform:uppercase;border-bottom:1px solid #2A2A2A;text-align:left;background:#111;}
+td{padding:7px 8px;font-size:11px;}
+tr.odd{background:#1C1C1C;} tr.even{background:#171717;}
+tr.odd td,tr.even td{border-bottom:1px solid #1a1a1a;}
+.chart-wrap{width:100%;overflow:hidden;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ── UTILS ──────────────────────────────────────────────────
+function fmt(n, d) {
+  if (n == null || n === "") return "—";
+  var dec = (d == null) ? 1 : d;
+  return Number(n).toLocaleString("pt-BR", { maximumFractionDigits: dec });
+}
+
+function parseDate(s) {
+  if (!s) return new Date(0);
+  var p = s.split("/");
+  if (p.length < 3) return new Date(0);
+  return new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
+}
+
+function todayStr() {
+  var t = new Date();
+  var dd = String(t.getDate()).padStart(2, "0");
+  var mm = String(t.getMonth() + 1).padStart(2, "0");
+  return dd + "/" + mm + "/" + t.getFullYear();
+}
+
+function uniq(arr) {
+  var seen = {};
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    if (!seen[arr[i]]) { seen[arr[i]] = true; out.push(arr[i]); }
+  }
+  return out.sort();
+}
+
+var _nid = 1000;
+function genId() { _nid++; return _nid; }
+
+function loadDB() {
+  try {
+    var s = localStorage.getItem("mr_app_v1");
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return { clientes: [], registros: [] };
+}
+
+function saveDB() {
+  try { localStorage.setItem("mr_app_v1", JSON.stringify(DB)); } catch (e) {}
+}
+
+// ── DOM helpers
+function el(tag, attrs, children) {
+  var d = document.createElement(tag);
+  if (attrs) {
+    for (var k in attrs) {
+      if (!attrs.hasOwnProperty(k)) continue;
+      if (k === "cls") { d.className = attrs[k]; }
+      else if (k === "html") { d.innerHTML = attrs[k]; }
+      else if (k === "style" && typeof attrs[k] === "object") { Object.assign(d.style, attrs[k]); }
+      else if (k.indexOf("on") === 0) { d.addEventListener(k.slice(2).toLowerCase(), attrs[k]); }
+      else { d[k] = attrs[k]; }
+    }
+  }
+  if (children) {
+    var arr = Array.isArray(children) ? children : [children];
+    for (var i = 0; i < arr.length; i++) {
+      var c = arr[i];
+      if (c == null || c === false) continue;
+      if (typeof c === "string") { d.appendChild(document.createTextNode(c)); }
+      else { d.appendChild(c); }
+    }
+  }
+  return d;
+}
+
+function mkSel(attrs, opts) {
+  var s = el("select", attrs);
+  for (var i = 0; i < opts.length; i++) {
+    var op = document.createElement("option");
+    op.value = (opts[i].v != null) ? opts[i].v : opts[i].l;
+    op.textContent = opts[i].l;
+    s.appendChild(op);
+  }
+  return s;
+}
+
+function mkInput(type, attrs) {
+  var defaults = { type: type, cls: "isel" };
+  var merged = Object.assign({}, defaults, attrs || {});
+  return el("input", merged);
+}
+
+function mkField(labelTxt, inputEl, span) {
+  var w = el("div", span ? { cls: "full" } : null);
+  w.appendChild(el("div", { cls: "flabel" }, [labelTxt]));
+  w.appendChild(inputEl);
+  return w;
+}
+
+function badge(cls, txt) {
+  return el("span", { cls: "badge " + cls }, [txt]);
+}
+// ── OMS REFERENCE VALUES ───────────────────────────────────
+var OMS = {
+  imc: [
+    { max: 16,   label: "Magreza grave",   cls: "bad"  },
+    { max: 17,   label: "Magreza moderada",cls: "bad"  },
+    { max: 18.5, label: "Magreza leve",    cls: "warn" },
+    { max: 24.9, label: "Peso normal ✓",   cls: "ok"   },
+    { max: 29.9, label: "Sobrepeso",       cls: "warn" },
+    { max: 34.9, label: "Obesidade Grau I",cls: "bad"  },
+    { max: 39.9, label: "Obesidade Grau II",cls: "bad" },
+    { max: 9999, label: "Obesidade III",   cls: "bad"  }
+  ],
+  gorduraM: [
+    { max: 6,    label: "Essencial",    cls: "warn" },
+    { max: 13,   label: "Atleta ✓",    cls: "ok"   },
+    { max: 17,   label: "Fitness ✓",   cls: "ok"   },
+    { max: 24,   label: "Médio",        cls: "warn" },
+    { max: 9999, label: "Obesidade",    cls: "bad"  }
+  ],
+  gorduraF: [
+    { max: 14,   label: "Essencial",    cls: "warn" },
+    { max: 20,   label: "Atleta ✓",    cls: "ok"   },
+    { max: 24,   label: "Fitness ✓",   cls: "ok"   },
+    { max: 31,   label: "Médio",        cls: "warn" },
+    { max: 9999, label: "Obesidade",    cls: "bad"  }
+  ],
+  visceral: [
+    { max: 9,    label: "Normal ✓",     cls: "ok"   },
+    { max: 14,   label: "Elevado",      cls: "warn" },
+    { max: 9999, label: "Muito elevado",cls: "bad"  }
+  ]
+};
+
+function cImc(v) {
+  for (var i = 0; i < OMS.imc.length; i++) {
+    if (Number(v) <= OMS.imc[i].max) return OMS.imc[i];
+  }
+  return OMS.imc[OMS.imc.length - 1];
+}
+
+function cGordura(v, sexo) {
+  var list = (sexo === "F") ? OMS.gorduraF : OMS.gorduraM;
+  for (var i = 0; i < list.length; i++) {
+    if (Number(v) <= list[i].max) return list[i];
+  }
+  return list[list.length - 1];
+}
+
+function cVisceral(v) {
+  for (var i = 0; i < OMS.visceral.length; i++) {
+    if (Number(v) <= OMS.visceral[i].max) return OMS.visceral[i];
+  }
+  return OMS.visceral[OMS.visceral.length - 1];
+}
+
+function cAgua(v, sexo) {
+  var mn = (sexo === "F") ? 45 : 50;
+  var mx = (sexo === "F") ? 60 : 65;
+  var n = Number(v);
+  if (n >= mn && n <= mx) return { label: "Normal ✓", cls: "ok" };
+  if (n < mn) return { label: "Abaixo do ideal", cls: "warn" };
+  return { label: "Acima do ideal", cls: "warn" };
+}
+
+function cPressao(s, d) {
+  var sv = Number(s), dv = Number(d);
+  if (sv < 120 && dv < 80)  return { label: "Ótima ✓",           cls: "ok"   };
+  if (sv < 130 && dv < 85)  return { label: "Normal ✓",           cls: "ok"   };
+  if (sv < 140 || dv < 90)  return { label: "Pré-hipertensão",    cls: "warn" };
+  if (sv < 160 || dv < 100) return { label: "Hipertensão Grau 1", cls: "bad"  };
+  if (sv < 180 || dv < 110) return { label: "Hipertensão Grau 2", cls: "bad"  };
+  return                           { label: "Hipertensão Grau 3", cls: "bad"  };
+}
+
+function cCintura(v, sexo) {
+  var n = Number(v);
+  if (sexo === "F") {
+    if (n < 80)  return { label: "Sem risco ✓",   cls: "ok"   };
+    if (n < 88)  return { label: "Risco aumentado",cls: "warn" };
+    return               { label: "Risco elevado", cls: "bad"  };
+  } else {
+    if (n < 94)  return { label: "Sem risco ✓",   cls: "ok"   };
+    if (n < 102) return { label: "Risco aumentado",cls: "warn" };
+    return               { label: "Risco elevado", cls: "bad"  };
+  }
+}
+
+function getRecomendacoes(av, sexo) {
+  var recs = [];
+  if (av.imc && cImc(av.imc).cls !== "ok")
+    recs.push("IMC: atingir 18.5 – 24.9 kg/m²");
+  if (av.massaGorda && cGordura(av.massaGorda, sexo).cls !== "ok")
+    recs.push("Gordura corporal: objetivo " + (sexo === "F" ? "14–24%" : "6–17%"));
+  if (av.gorduraVisceral && Number(av.gorduraVisceral) > 9)
+    recs.push("Gordura visceral: reduzir para nível < 10");
+  if (av.cintura && cCintura(av.cintura, sexo).cls !== "ok")
+    recs.push("Cintura: objetivo " + (sexo === "F" ? "< 80 cm" : "< 94 cm"));
+  if (av.pressaoSist && av.pressaoDiast && cPressao(av.pressaoSist, av.pressaoDiast).cls !== "ok")
+    recs.push("Pressão arterial: objetivo < 120/80 mmHg");
+  if (av.aguaCorporal && cAgua(av.aguaCorporal, sexo).cls !== "ok")
+    recs.push("Hidratação: objetivo " + (sexo === "F" ? "45–60%" : "50–65%"));
+  return recs;
+}
+// ── SVG CHARTS ─────────────────────────────────────────────
+function svgLine(container, points, unit) {
+  container.innerHTML = "";
+  var pts = [];
+  for (var i = 0; i < points.length; i++) {
+    var p = points[i];
+    if (p.v != null && p.v !== "" && !isNaN(Number(p.v))) {
+      pts.push({ d: p.d, v: Number(p.v) });
+    }
+  }
+  pts.sort(function(a, b) { return parseDate(a.d) - parseDate(b.d); });
+
+  if (pts.length < 2) {
+    container.innerHTML = "<div style='color:#555;font-size:10px;padding:8px;text-align:center'>Min. 2 registos</div>";
+    return;
+  }
+
+  var W = (container.offsetWidth || 260);
+  var H = 80;
+  var PL = 32, PR = 8, PT = 14, PB = 20;
+  var cw = W - PL - PR;
+  var ch = H - PT - PB;
+
+  var vals = [];
+  for (var i = 0; i < pts.length; i++) vals.push(pts[i].v);
+  var minV = Math.min.apply(null, vals);
+  var maxV = Math.max.apply(null, vals);
+  if (minV === maxV) { minV = Math.max(0, minV - 1); maxV = maxV + 1; }
+  var rng = maxV - minV;
+  minV = Math.max(0, minV - rng * 0.1);
+  maxV = maxV + rng * 0.1;
+
+  var ns = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+  svg.style.display = "block";
+  svg.style.width = "100%";
+
+  function xp(i) { return PL + i * (cw / (pts.length - 1)); }
+  function yp(v) { return PT + ch - ((v - minV) / (maxV - minV)) * ch; }
+
+  // Grid lines
+  for (var g = 0; g <= 2; g++) {
+    var gy = PT + g * (ch / 2);
+    var gv = maxV - g * (maxV - minV) / 2;
+    var gl = document.createElementNS(ns, "line");
+    gl.setAttribute("x1", PL); gl.setAttribute("y1", gy);
+    gl.setAttribute("x2", PL + cw); gl.setAttribute("y2", gy);
+    gl.setAttribute("stroke", "#222"); gl.setAttribute("stroke-dasharray", "2,3");
+    svg.appendChild(gl);
+    var gt = document.createElementNS(ns, "text");
+    gt.setAttribute("x", PL - 3); gt.setAttribute("y", gy + 3);
+    gt.setAttribute("text-anchor", "end"); gt.setAttribute("font-size", "7");
+    gt.setAttribute("fill", "#555");
+    gt.textContent = fmt(gv, 0);
+    svg.appendChild(gt);
+  }
+
+  // Area
+  var apath = "M " + xp(0) + " " + (PT + ch);
+  for (var i = 0; i < pts.length; i++) {
+    apath += " L " + xp(i) + " " + yp(pts[i].v);
+  }
+  apath += " L " + xp(pts.length - 1) + " " + (PT + ch) + " Z";
+  var af = document.createElementNS(ns, "path");
+  af.setAttribute("d", apath);
+  af.setAttribute("fill", "#C9A800");
+  af.setAttribute("opacity", "0.12");
+  svg.appendChild(af);
+
+  // Line
+  var lpath = "M " + xp(0) + " " + yp(pts[0].v);
+  for (var i = 1; i < pts.length; i++) {
+    lpath += " L " + xp(i) + " " + yp(pts[i].v);
+  }
+  var lp = document.createElementNS(ns, "path");
+  lp.setAttribute("d", lpath);
+  lp.setAttribute("fill", "none");
+  lp.setAttribute("stroke", "#C9A800");
+  lp.setAttribute("stroke-width", "2");
+  svg.appendChild(lp);
+
+  // Dots + labels
+  for (var i = 0; i < pts.length; i++) {
+    var cx = xp(i), cy = yp(pts[i].v);
+    var c1 = document.createElementNS(ns, "circle");
+    c1.setAttribute("cx", cx); c1.setAttribute("cy", cy);
+    c1.setAttribute("r", "3.5");
+    c1.setAttribute("fill", "#0A0A0A");
+    c1.setAttribute("stroke", "#C9A800");
+    c1.setAttribute("stroke-width", "1.5");
+    svg.appendChild(c1);
+
+    var vt = document.createElementNS(ns, "text");
+    vt.setAttribute("x", cx); vt.setAttribute("y", cy - 5);
+    vt.setAttribute("text-anchor", "middle");
+    vt.setAttribute("font-size", "7"); vt.setAttribute("fill", "#C9A800");
+    vt.setAttribute("font-weight", "700");
+    vt.textContent = fmt(pts[i].v, 1) + (unit || "");
+    svg.appendChild(vt);
+
+    var xparts = pts[i].d.split("/");
+    var xt = document.createElementNS(ns, "text");
+    xt.setAttribute("x", cx); xt.setAttribute("y", H - 3);
+    xt.setAttribute("text-anchor", "middle");
+    xt.setAttribute("font-size", "7"); xt.setAttribute("fill", "#555");
+    xt.textContent = xparts[0] + "/" + xparts[1];
+    svg.appendChild(xt);
+  }
+
+  container.appendChild(svg);
+}
+// ── SEED DATA ──────────────────────────────────────────────
+var SEED_REGISTROS = [
+  {id:1,data:"13/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Abdutores",serie:1,reps:12,peso:40},
+  {id:2,data:"13/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Abdutores",serie:2,reps:12,peso:40},
+  {id:3,data:"13/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Abdutores",serie:3,reps:12,peso:40},
+  {id:4,data:"19/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Abdutores",serie:1,reps:12,peso:45},
+  {id:5,data:"19/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Abdutores",serie:2,reps:12,peso:45},
+  {id:6,data:"19/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Abdutores",serie:3,reps:12,peso:45},
+  {id:7,data:"13/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Hip Trust",serie:1,reps:12,peso:35},
+  {id:8,data:"13/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Hip Trust",serie:2,reps:12,peso:35},
+  {id:9,data:"13/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Hip Trust",serie:3,reps:12,peso:35},
+  {id:10,data:"19/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Hip Trust",serie:1,reps:12,peso:40},
+  {id:11,data:"19/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Hip Trust",serie:2,reps:12,peso:40},
+  {id:12,data:"19/02/2025",aluno:"Inês Félix",treino:"B",exercicio:"Hip Trust",serie:3,reps:12,peso:40},
+  {id:13,data:"17/02/2025",aluno:"Telmo",treino:"A",exercicio:"Supino 45 Halter",serie:1,reps:12,peso:20},
+  {id:14,data:"17/02/2025",aluno:"Telmo",treino:"A",exercicio:"Supino 45 Halter",serie:2,reps:12,peso:22.5},
+  {id:15,data:"17/02/2025",aluno:"Telmo",treino:"A",exercicio:"Supino 45 Halter",serie:3,reps:12,peso:22.5},
+  {id:16,data:"21/02/2025",aluno:"Telmo",treino:"A",exercicio:"Supino 45 Halter",serie:1,reps:12,peso:22.5},
+  {id:17,data:"21/02/2025",aluno:"Telmo",treino:"A",exercicio:"Supino 45 Halter",serie:2,reps:13,peso:22.5},
+  {id:18,data:"21/02/2025",aluno:"Telmo",treino:"A",exercicio:"Supino 45 Halter",serie:3,reps:12,peso:25},
+  {id:19,data:"17/02/2025",aluno:"Telmo",treino:"A",exercicio:"Peck Fly",serie:1,reps:12,peso:50},
+  {id:20,data:"17/02/2025",aluno:"Telmo",treino:"A",exercicio:"Peck Fly",serie:2,reps:12,peso:50},
+  {id:21,data:"17/02/2025",aluno:"Telmo",treino:"A",exercicio:"Peck Fly",serie:3,reps:12,peso:50},
+  {id:22,data:"21/02/2025",aluno:"Telmo",treino:"A",exercicio:"Peck Fly",serie:1,reps:12,peso:60},
+  {id:23,data:"21/02/2025",aluno:"Telmo",treino:"A",exercicio:"Peck Fly",serie:2,reps:12,peso:60},
+  {id:24,data:"21/02/2025",aluno:"Telmo",treino:"A",exercicio:"Peck Fly",serie:3,reps:12,peso:60},
+  {id:25,data:"18/02/2025",aluno:"Zahra",treino:"A",exercicio:"Hip Trust",serie:1,reps:12,peso:37.5},
+  {id:26,data:"18/02/2025",aluno:"Zahra",treino:"A",exercicio:"Hip Trust",serie:2,reps:12,peso:37.5},
+  {id:27,data:"18/02/2025",aluno:"Zahra",treino:"A",exercicio:"Hip Trust",serie:3,reps:12,peso:37.5},
+  {id:28,data:"21/02/2025",aluno:"Zahra",treino:"B",exercicio:"Hip Trust",serie:1,reps:12,peso:45},
+  {id:29,data:"21/02/2025",aluno:"Zahra",treino:"B",exercicio:"Hip Trust",serie:2,reps:12,peso:45},
+  {id:30,data:"21/02/2025",aluno:"Zahra",treino:"B",exercicio:"Hip Trust",serie:3,reps:12,peso:45},
+  {id:31,data:"18/02/2025",aluno:"Zahra",treino:"A",exercicio:"Agachamento Multipower",serie:1,reps:12,peso:25},
+  {id:32,data:"18/02/2025",aluno:"Zahra",treino:"A",exercicio:"Agachamento Multipower",serie:2,reps:12,peso:25},
+  {id:33,data:"18/02/2025",aluno:"Zahra",treino:"A",exercicio:"Agachamento Multipower",serie:3,reps:12,peso:25},
+  {id:34,data:"21/02/2025",aluno:"Zahra",treino:"B",exercicio:"Agachamento Multipower",serie:1,reps:12,peso:35},
+  {id:35,data:"21/02/2025",aluno:"Zahra",treino:"B",exercicio:"Agachamento Multipower",serie:2,reps:12,peso:35},
+  {id:36,data:"21/02/2025",aluno:"Zahra",treino:"B",exercicio:"Agachamento Multipower",serie:3,reps:12,peso:35}
+];
+
+var SEED_CLIENTES = [
+  { id: 201, nome: "Inês Félix", sexo: "F", dataNasc: "15/03/1992", altura: "162", avaliacoes: [] },
+  { id: 202, nome: "Telmo",      sexo: "M", dataNasc: "08/07/1988", altura: "178", avaliacoes: [] },
+  { id: 203, nome: "Zahra",      sexo: "F", dataNasc: "22/11/1995", altura: "165", avaliacoes: [] }
+];
+
+var DB = loadDB();
+if (!DB.clientes || DB.clientes.length === 0) {
+  DB.clientes = SEED_CLIENTES;
+}
+if (!DB.registros || DB.registros.length === 0) {
+  DB.registros = SEED_REGISTROS;
+}
+// ── MODAL: Novo Registo Treino ─────────────────────────────
+function showModalTreino(editRec) {
+  var isEdit = !!editRec;
+  var rec = isEdit ? JSON.parse(JSON.stringify(editRec)) : {
+    id: genId(), data: todayStr(), aluno: "", treino: "A",
+    exercicio: "", serie: 1, reps: 12, peso: ""
+  };
+  var rows = [];
+  var errDiv = null;
+
+  function setErr(msg) { if (errDiv) errDiv.textContent = msg; }
+
+  var alunos = uniq(DB.clientes.map(function(c) { return c.nome; }));
+  var exercicios = uniq(DB.registros.map(function(r) { return r.exercicio; }));
+
+  var ov = el("div", { cls: "overlay" });
+  var modal = el("div", { cls: "modal" });
+
+  modal.appendChild(el("div", { cls: "modal-hdr" }, [
+    el("div", { style: { fontSize: "15px", fontWeight: "800" } }, [isEdit ? "Editar Registo" : "+ Novo Registo de Treino"]),
+    el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["X"])
+  ]));
+
+  var g = el("div", { cls: "grid2" });
+
+  var iData = mkInput("text", { placeholder: "DD/MM/AAAA", value: rec.data });
+  iData.addEventListener("input", function(e) { rec.data = e.target.value; });
+
+  var sTreino = mkSel({ cls: "isel", onChange: function(e) { rec.treino = e.target.value; } },
+    [{ v: "A", l: "A" }, { v: "B", l: "B" }, { v: "C", l: "C" },
+     { v: "D", l: "D" }, { v: "E", l: "E" }, { v: "F", l: "F" }]);
+  sTreino.value = rec.treino;
+
+  var sAluno = mkSel({ cls: "isel", onChange: function(e) { rec.aluno = e.target.value; } },
+    [{ v: "", l: "-- Selecionar --" }].concat(
+      alunos.map(function(a) { return { v: a, l: a }; })
+    ).concat([{ v: "__novo__", l: "+ Novo aluno..." }]));
+  sAluno.value = rec.aluno;
+
+  var novoAlunoWrap = el("div", { cls: "full", style: { display: rec.aluno === "__novo__" ? "block" : "none" } });
+  var iNovoAluno = mkInput("text", { placeholder: "Nome do novo aluno" });
+  novoAlunoWrap.appendChild(mkField("Nome do novo aluno", iNovoAluno, true));
+  sAluno.addEventListener("change", function(e) {
+    novoAlunoWrap.style.display = e.target.value === "__novo__" ? "block" : "none";
+  });
+
+  var sEx = mkSel({ cls: "isel" },
+    [{ v: "", l: "-- Selecionar --" }].concat(
+      exercicios.map(function(x) { return { v: x, l: x }; })
+    ).concat([{ v: "__novo__", l: "+ Novo exercicio..." }]));
+  sEx.value = rec.exercicio || "";
+
+  var novoExWrap = el("div", { cls: "full", style: { display: "none" } });
+  var iNovoEx = mkInput("text", { placeholder: "Nome do exercicio" });
+  novoExWrap.appendChild(mkField("Nome do exercicio", iNovoEx, true));
+  sEx.addEventListener("change", function(e) {
+    novoExWrap.style.display = e.target.value === "__novo__" ? "block" : "none";
+  });
+
+  g.appendChild(mkField("Data", iData));
+  g.appendChild(mkField("Treino", sTreino));
+  g.appendChild(mkField("Aluno", sAluno));
+  g.appendChild(el("div"));
+  g.appendChild(el("div", { cls: "full" }, [mkField("Exercicio", sEx, false)]));
+  modal.appendChild(g);
+  modal.appendChild(novoAlunoWrap);
+  modal.appendChild(novoExWrap);
+
+  if (isEdit) {
+    // Edit mode: show single row
+    var sg = el("div", { cls: "grid3", style: { marginTop: "10px" } });
+    var iSerie = mkInput("number", { value: String(rec.serie), min: "1" });
+    iSerie.addEventListener("input", function(e) { rec.serie = Number(e.target.value); });
+    var iReps = mkInput("number", { value: String(rec.reps), min: "1" });
+    iReps.addEventListener("input", function(e) { rec.reps = Number(e.target.value); });
+    var iPeso = mkInput("number", { value: String(rec.peso), step: "0.5", min: "0" });
+    iPeso.addEventListener("input", function(e) { rec.peso = Number(e.target.value); });
+    sg.appendChild(mkField("Serie", iSerie));
+    sg.appendChild(mkField("Reps", iReps));
+    sg.appendChild(mkField("Peso kg", iPeso));
+    modal.appendChild(sg);
+
+    var foot = el("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "14px" } });
+    foot.appendChild(el("button", { cls: "btn-red", onClick: function() {
+      DB.registros = DB.registros.filter(function(x) { return x.id !== rec.id; });
+      saveDB(); ov.remove(); renderApp();
+    }}, ["Excluir"]));
+    foot.appendChild(el("div", { style: { display: "flex", gap: "8px" } }, [
+      el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["Cancelar"]),
+      el("button", { cls: "btn-gold", onClick: function() {
+        var aluno = sAluno.value === "__novo__" ? iNovoAluno.value.trim() : sAluno.value;
+        var ex = sEx.value === "__novo__" ? iNovoEx.value.trim() : sEx.value;
+        if (!rec.data || !aluno || !ex) { alert("Preencha todos os campos."); return; }
+        var idx = -1;
+        for (var i = 0; i < DB.registros.length; i++) {
+          if (DB.registros[i].id === rec.id) { idx = i; break; }
+        }
+        var updated = { id: rec.id, data: rec.data, aluno: aluno, treino: sTreino.value,
+          exercicio: ex, serie: rec.serie, reps: rec.reps, peso: rec.peso };
+        if (idx >= 0) DB.registros[idx] = updated;
+        if (aluno !== "" && !DB.clientes.find(function(c) { return c.nome === aluno; })) {
+          DB.clientes.push({ id: genId(), nome: aluno, sexo: "M", dataNasc: "", altura: "", avaliacoes: [] });
+        }
+        saveDB(); ov.remove(); renderApp();
+      }}, ["Guardar"])
+    ]));
+    modal.appendChild(foot);
+
+  } else {
+    // New mode: add multiple series
+    var serieBox = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "10px", padding: "12px", marginTop: "10px" } });
+    serieBox.appendChild(el("div", { style: { fontSize: "10px", color: "#C9A800", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "8px" } }, ["Serie"]));
+    var serieNum = 1;
+    var sg2 = el("div", { cls: "grid3" });
+    var iSerieN = mkInput("number", { value: "1", min: "1" });
+    var iRepsN = mkInput("number", { value: "12", min: "1" });
+    var iPesoN = mkInput("number", { step: "0.5", min: "0", placeholder: "0" });
+    sg2.appendChild(mkField("Nr", iSerieN));
+    sg2.appendChild(mkField("Reps", iRepsN));
+    sg2.appendChild(mkField("Peso kg", iPesoN));
+    serieBox.appendChild(sg2);
+    iPesoN.addEventListener("keydown", function(e) { if (e.key === "Enter") addRow(); });
+    modal.appendChild(serieBox);
+
+    errDiv = el("div", { style: { color: "#F44336", fontSize: "11px", marginTop: "6px" } });
+    modal.appendChild(errDiv);
+
+    var rowsTable = el("div", { style: { marginTop: "8px" } });
+    modal.appendChild(rowsTable);
+
+    function renderRows() {
+      rowsTable.innerHTML = "";
+      if (!rows.length) return;
+      var hdr = el("div", { style: { fontSize: "9px", color: "#777", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "4px" } },
+        ["Series adicionadas (" + rows.length + ")"]);
+      rowsTable.appendChild(hdr);
+      var tbl = el("table", { style: { width: "100%", borderCollapse: "collapse" } });
+      var thead = el("thead");
+      var htr = el("tr");
+      ["Aluno", "Exercicio", "T", "S", "R", "Peso", ""].forEach(function(h) {
+        htr.appendChild(el("th", null, [h]));
+      });
+      thead.appendChild(htr); tbl.appendChild(thead);
+      var tbody = el("tbody");
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var tr = el("tr", { cls: i % 2 === 0 ? "odd" : "even" });
+        tr.appendChild(el("td", null, [r.aluno]));
+        tr.appendChild(el("td", { style: { maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, [r.exercicio]));
+        tr.appendChild(el("td", { style: { textAlign: "center" } }, [r.treino]));
+        tr.appendChild(el("td", { style: { textAlign: "center" } }, [String(r.serie)]));
+        tr.appendChild(el("td", { style: { textAlign: "center" } }, [String(r.reps)]));
+        tr.appendChild(el("td", { style: { fontWeight: "700", color: "#C9A800" } }, [r.peso + "kg"]));
+        (function(rid) {
+          var xb = el("button", { style: { background: "none", border: "none", color: "#F44336", cursor: "pointer", fontSize: "12px" } }, ["X"]);
+          xb.addEventListener("click", function() {
+            rows = rows.filter(function(x) { return x.id !== rid; });
+            renderRows();
+          });
+          tr.appendChild(el("td", { style: { textAlign: "center" } }, [xb]));
+        })(r.id);
+        tbody.appendChild(tr);
+      }
+      tbl.appendChild(tbody);
+      rowsTable.appendChild(tbl);
+    }
+
+    function addRow() {
+      var aluno = sAluno.value === "__novo__" ? iNovoAluno.value.trim() : sAluno.value;
+      var ex = sEx.value === "__novo__" ? iNovoEx.value.trim() : sEx.value;
+      if (!iData.value || !aluno || !ex || !iPesoN.value) {
+        setErr("Preencha: data, aluno, exercicio e peso."); return;
+      }
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(iData.value)) {
+        setErr("Data: DD/MM/AAAA"); return;
+      }
+      setErr("");
+      rows.push({ id: genId(), data: iData.value, aluno: aluno, treino: sTreino.value,
+        exercicio: ex, serie: Number(iSerieN.value), reps: Number(iRepsN.value),
+        peso: Number(iPesoN.value) });
+      iSerieN.value = String(Number(iSerieN.value) + 1);
+      iPesoN.value = "";
+      renderRows();
+    }
+
+    var addBtn = el("button", { style: { background: "#C9A800", color: "#000", border: "none", borderRadius: "8px", padding: "9px 14px", fontSize: "13px", fontWeight: "700", cursor: "pointer", marginTop: "8px", width: "100%" } }, ["+ Add Serie"]);
+    addBtn.addEventListener("click", addRow);
+    modal.appendChild(addBtn);
+
+    var foot2 = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "10px" } });
+    foot2.appendChild(el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["Cancelar"]));
+    foot2.appendChild(el("button", { cls: "btn-gold", onClick: function() {
+      if (!rows.length) { setErr("Adicione ao menos uma serie."); return; }
+      // Add new aluno to DB if needed
+      for (var i = 0; i < rows.length; i++) {
+        var rAluno = rows[i].aluno;
+        var found = false;
+        for (var j = 0; j < DB.clientes.length; j++) {
+          if (DB.clientes[j].nome === rAluno) { found = true; break; }
+        }
+        if (!found && rAluno) {
+          DB.clientes.push({ id: genId(), nome: rAluno, sexo: "M", dataNasc: "", altura: "", avaliacoes: [] });
+        }
+        DB.registros.push(rows[i]);
+      }
+      saveDB(); ov.remove(); renderApp();
+    }}, ["Guardar (" + rows.length + ")"]));
+    modal.appendChild(foot2);
+  }
+
+  ov.appendChild(modal);
+  document.getElementById("app").appendChild(ov);
+}
+// ── MODAL: Avaliação Física ────────────────────────────────
+var PERIMETROS = [
+  ["ombro","Ombro"], ["torax","Torax"], ["abdomen","Abdomen"],
+  ["cintura","Cintura"], ["anca","Anca"],
+  ["coxaD","Coxa D"], ["coxaE","Coxa E"],
+  ["bracoRD","Braco D Relax"], ["bracoRE","Braco E Relax"],
+  ["bracoCD","Braco D Cont"], ["bracoCE","Braco E Cont"],
+  ["gemeoD","Gemeo D"], ["gemeoE","Gemeo E"]
+];
+
+function showModalAvaliacao(cliente, editAv) {
+  var isEdit = !!editAv;
+  var av = isEdit ? JSON.parse(JSON.stringify(editAv)) : { id: genId(), dataAv: todayStr(),
+    objetivo: "", peso: "", altura: cliente.altura || "",
+    massaGorda: "", massaMagra: "", imc: "", tmb: "", idadeMetab: "",
+    gorduraVisceral: "", aguaCorporal: "",
+    pressaoSist: "", pressaoDiast: "",
+    ombro:"", torax:"", abdomen:"", cintura:"", anca:"",
+    coxaD:"", coxaE:"", bracoRD:"", bracoRE:"", bracoCD:"", bracoCE:"",
+    gemeoD:"", gemeoE:""
+  };
+
+  var iImcRef = null;
+
+  function bind(field) {
+    var inp = mkInput("number", { step: "0.1", min: "0", value: av[field] != null ? String(av[field]) : "" });
+    inp.addEventListener("input", function(e) {
+      av[field] = e.target.value;
+      if ((field === "peso" || field === "altura") && av.peso && av.altura) {
+        var h = Number(av.altura) / 100;
+        if (h > 0) {
+          var imc = (Number(av.peso) / (h * h)).toFixed(1);
+          av.imc = imc;
+          if (iImcRef) iImcRef.value = imc;
+        }
+      }
+    });
+    return inp;
+  }
+
+  function bindText(field) {
+    var inp = mkInput("text", { value: av[field] || "" });
+    inp.addEventListener("input", function(e) { av[field] = e.target.value; });
+    return inp;
+  }
+
+  var ov = el("div", { cls: "overlay" });
+  var modal = el("div", { cls: "modal" });
+
+  modal.appendChild(el("div", { cls: "modal-hdr" }, [
+    el("div", { style: { fontSize: "14px", fontWeight: "800" } },
+      [(isEdit ? "Editar Avaliacao" : "Nova Avaliacao") + " — " + cliente.nome]),
+    el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["X"])
+  ]));
+
+  // Geral
+  modal.appendChild(el("div", { cls: "sec-title", style: { marginBottom: "8px" } }, ["Dados Gerais"]));
+  var g1 = el("div", { cls: "grid2" });
+  var iDataAv = mkInput("text", { placeholder: "DD/MM/AAAA", value: av.dataAv });
+  iDataAv.addEventListener("input", function(e) { av.dataAv = e.target.value; });
+  var iObj = mkInput("text", { placeholder: "Ex: Emagrecimento", value: av.objetivo || "" });
+  iObj.addEventListener("input", function(e) { av.objetivo = e.target.value; });
+  g1.appendChild(mkField("Data", iDataAv));
+  g1.appendChild(mkField("Objetivo", iObj));
+  g1.appendChild(mkField("Peso (kg)", bind("peso")));
+  g1.appendChild(mkField("Altura (cm)", bind("altura")));
+  modal.appendChild(g1);
+
+  // Bioimpedancia
+  modal.appendChild(el("div", { cls: "sec-title", style: { margin: "12px 0 8px" } }, ["Bioimpedancia"]));
+  var g2 = el("div", { cls: "grid2" });
+  g2.appendChild(mkField("Massa Gorda (%)", bind("massaGorda")));
+  g2.appendChild(mkField("Massa Magra (kg)", bind("massaMagra")));
+  iImcRef = bind("imc");
+  g2.appendChild(mkField("IMC", iImcRef));
+  g2.appendChild(mkField("TMB (kcal)", bind("tmb")));
+  g2.appendChild(mkField("Idade Metab.", bind("idadeMetab")));
+  g2.appendChild(mkField("Gordura Visceral", bind("gorduraVisceral")));
+  g2.appendChild(el("div", { cls: "full" }, [mkField("Agua Corporal (%)", bind("aguaCorporal"), true)]));
+  modal.appendChild(g2);
+
+  // Pressao
+  modal.appendChild(el("div", { cls: "sec-title", style: { margin: "12px 0 8px" } }, ["Pressao Arterial"]));
+  var g3 = el("div", { cls: "grid2" });
+  var iPS = mkInput("number", { step: "1", min: "0", value: av.pressaoSist || "" });
+  iPS.addEventListener("input", function(e) { av.pressaoSist = e.target.value; });
+  var iPD = mkInput("number", { step: "1", min: "0", value: av.pressaoDiast || "" });
+  iPD.addEventListener("input", function(e) { av.pressaoDiast = e.target.value; });
+  g3.appendChild(mkField("Sistolica (mmHg)", iPS));
+  g3.appendChild(mkField("Diastolica (mmHg)", iPD));
+  modal.appendChild(g3);
+
+  // Perimetros
+  modal.appendChild(el("div", { cls: "sec-title", style: { margin: "12px 0 8px" } }, ["Perimetros (cm)"]));
+  var g4 = el("div", { cls: "grid3" });
+  for (var pi = 0; pi < PERIMETROS.length; pi++) {
+    var pf = PERIMETROS[pi][0];
+    var pl = PERIMETROS[pi][1];
+    g4.appendChild(mkField(pl, bind(pf)));
+  }
+  modal.appendChild(g4);
+
+  // Botoes
+  var foot = el("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "14px", gap: "8px" } });
+  if (isEdit) {
+    foot.appendChild(el("button", { cls: "btn-red", onClick: function() {
+      if (!confirm("Excluir avaliacao?")) return;
+      cliente.avaliacoes = cliente.avaliacoes.filter(function(x) { return x.id !== av.id; });
+      saveDB(); ov.remove(); renderApp();
+    }}, ["Excluir"]));
+  } else {
+    foot.appendChild(el("div"));
+  }
+  foot.appendChild(el("div", { style: { display: "flex", gap: "8px" } }, [
+    el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["Cancelar"]),
+    el("button", { cls: "btn-gold", onClick: function() {
+      if (!av.dataAv) { alert("Data obrigatoria."); return; }
+      if (!cliente.avaliacoes) cliente.avaliacoes = [];
+      if (isEdit) {
+        for (var i = 0; i < cliente.avaliacoes.length; i++) {
+          if (cliente.avaliacoes[i].id === av.id) { cliente.avaliacoes[i] = av; break; }
+        }
+      } else {
+        cliente.avaliacoes.push(av);
+      }
+      saveDB(); ov.remove();
+      STATE.tab = "perfil"; STATE.clienteId = cliente.id;
+      renderApp();
+    }}, ["Guardar"])
+  ]));
+  modal.appendChild(foot);
+  ov.appendChild(modal);
+  document.getElementById("app").appendChild(ov);
+}
+
+// ── MODAL: Cliente ─────────────────────────────────────────
+function showModalCliente(existing) {
+  var isEdit = !!existing;
+  var c = isEdit ? JSON.parse(JSON.stringify(existing)) : {
+    id: genId(), nome: "", sexo: "M", dataNasc: "", altura: "", avaliacoes: []
+  };
+
+  var ov = el("div", { cls: "overlay" });
+  var modal = el("div", { cls: "modal" });
+  modal.appendChild(el("div", { cls: "modal-hdr" }, [
+    el("div", { style: { fontSize: "15px", fontWeight: "800" } }, [isEdit ? "Editar Cliente" : "Novo Cliente"]),
+    el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["X"])
+  ]));
+
+  var g = el("div", { cls: "grid2" });
+  var iNome = mkInput("text", { placeholder: "Nome completo", value: c.nome });
+  iNome.addEventListener("input", function(e) { c.nome = e.target.value; });
+
+  var sSexo = mkSel({ cls: "isel", onChange: function(e) { c.sexo = e.target.value; } },
+    [{ v: "M", l: "Masculino" }, { v: "F", l: "Feminino" }]);
+  sSexo.value = c.sexo;
+
+  var iNasc = mkInput("text", { placeholder: "DD/MM/AAAA", value: c.dataNasc || "" });
+  iNasc.addEventListener("input", function(e) { c.dataNasc = e.target.value; });
+
+  var iAlt = mkInput("number", { step: "1", min: "0", placeholder: "170", value: c.altura || "" });
+  iAlt.addEventListener("input", function(e) { c.altura = e.target.value; });
+
+  g.appendChild(el("div", { cls: "full" }, [mkField("Nome *", iNome, true)]));
+  g.appendChild(mkField("Sexo", sSexo));
+  g.appendChild(mkField("Data Nascimento", iNasc));
+  g.appendChild(mkField("Altura base (cm)", iAlt));
+  modal.appendChild(g);
+
+  var foot = el("div", { style: { display: "flex", justifyContent: "space-between", marginTop: "14px" } });
+  if (isEdit) {
+    foot.appendChild(el("button", { cls: "btn-red", onClick: function() {
+      if (!confirm("Excluir cliente?")) return;
+      DB.clientes = DB.clientes.filter(function(x) { return x.id !== c.id; });
+      saveDB(); ov.remove(); STATE.tab = "clientes"; STATE.clienteId = null; renderApp();
+    }}, ["Excluir"]));
+  } else {
+    foot.appendChild(el("div"));
+  }
+  foot.appendChild(el("div", { style: { display: "flex", gap: "8px" } }, [
+    el("button", { cls: "btn-outline", onClick: function() { ov.remove(); } }, ["Cancelar"]),
+    el("button", { cls: "btn-gold", onClick: function() {
+      c.nome = iNome.value.trim();
+      c.dataNasc = iNasc.value;
+      c.altura = iAlt.value;
+      c.sexo = sSexo.value;
+      if (!c.nome) { alert("Nome obrigatorio."); return; }
+      if (!c.avaliacoes) c.avaliacoes = [];
+      if (isEdit) {
+        for (var i = 0; i < DB.clientes.length; i++) {
+          if (DB.clientes[i].id === c.id) { DB.clientes[i] = c; break; }
+        }
+      } else {
+        DB.clientes.push(c);
+      }
+      saveDB(); ov.remove(); STATE.tab = "perfil"; STATE.clienteId = c.id; renderApp();
+    }}, ["Guardar"])
+  ]));
+  modal.appendChild(foot);
+  ov.appendChild(modal);
+  document.getElementById("app").appendChild(ov);
+}
+// ── PDF EXPORT ─────────────────────────────────────────────
+function exportPDF(cliente, avIndex) {
+  var avs = cliente.avaliacoes || [];
+  if (!avs.length) { alert("Sem avaliacoes para exportar."); return; }
+  var idx = (avIndex != null) ? avIndex : avs.length - 1;
+  var av = avs[idx];
+  var sexo = cliente.sexo || "M";
+
+  // ── Build metrics rows
+  var sbg = { ok: "#e8f5e9", warn: "#fff8e1", bad: "#ffebee" };
+  var scol = { ok: "#2e7d32", warn: "#e65100", bad: "#c62828" };
+
+  function mrow(label, val, cls, classLabel, ref) {
+    var bc = sbg[cls] || "#f5f5f5";
+    var fc = scol[cls] || "#333";
+    return "<tr><td style='padding:6px 8px;font-size:11px;color:#555;border-bottom:1px solid #f0f0f0;'>" + label +
+      "</td><td style='padding:6px 8px;font-size:11px;font-weight:700;border-bottom:1px solid #f0f0f0;'>" + val +
+      "</td><td style='padding:6px 8px;font-size:10px;color:#888;border-bottom:1px solid #f0f0f0;'>" + (ref || "") +
+      "</td><td style='padding:4px 6px;border-bottom:1px solid #f0f0f0;'>" +
+      (classLabel ? "<span style='background:" + bc + ";color:" + fc + ";border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;'>" + classLabel + "</span>" : "") +
+      "</td></tr>";
+  }
+
+  var rows = "";
+  if (av.imc) { var r1 = cImc(av.imc); rows += mrow("IMC", av.imc + " kg/m2", r1.cls, r1.label, "Ideal: 18.5 - 24.9"); }
+  if (av.massaGorda) { var r2 = cGordura(av.massaGorda, sexo); rows += mrow("Massa Gorda", av.massaGorda + "%", r2.cls, r2.label, "Ideal: " + (sexo === "F" ? "14-24%" : "6-17%")); }
+  if (av.massaMagra) rows += mrow("Massa Magra", av.massaMagra + " kg", "ok", "", "");
+  if (av.gorduraVisceral) { var r3 = cVisceral(av.gorduraVisceral); rows += mrow("Gordura Visceral", "Nivel " + av.gorduraVisceral, r3.cls, r3.label, "Ideal: 1-9"); }
+  if (av.aguaCorporal) { var r4 = cAgua(av.aguaCorporal, sexo); rows += mrow("Agua Corporal", av.aguaCorporal + "%", r4.cls, r4.label, "Ideal: " + (sexo === "F" ? "45-60%" : "50-65%")); }
+  if (av.tmb) rows += mrow("Taxa Metab. Basal", av.tmb + " kcal", "ok", "", "");
+  if (av.idadeMetab) rows += mrow("Idade Metabolica", av.idadeMetab + " anos", "ok", "", "");
+  if (av.pressaoSist && av.pressaoDiast) { var r5 = cPressao(av.pressaoSist, av.pressaoDiast); rows += mrow("Pressao Arterial", av.pressaoSist + "/" + av.pressaoDiast + " mmHg", r5.cls, r5.label, "Ideal: < 120/80"); }
+
+  // ── Body avatar SVG with measurements
+  var pmap = {
+    ombro: av.ombro, torax: av.torax, abdomen: av.abdomen, cintura: av.cintura,
+    anca: av.anca, coxaD: av.coxaD, coxaE: av.coxaE,
+    bracoRD: av.bracoRD, bracoRE: av.bracoRE,
+    gemeoD: av.gemeoD, gemeoE: av.gemeoE
+  };
+
+  function lbl(txt, x, y, anchor) {
+    if (!txt || Number(txt) === 0) return "";
+    return "<text x='" + x + "' y='" + y + "' text-anchor='" + (anchor||"middle") + "' font-size='8' fill='#333' font-family='Arial'>" + txt + " cm</text>";
+  }
+  function dot(x, y) {
+    return "<circle cx='" + x + "' cy='" + y + "' r='3' fill='#C9A800'/>";
+  }
+  function line(x1,y1,x2,y2) {
+    return "<line x1='" + x1 + "' y1='" + y1 + "' x2='" + x2 + "' y2='" + y2 + "' stroke='#C9A800' stroke-width='0.8' stroke-dasharray='3,2'/>";
+  }
+
+  // ── Body avatar SVG — ficha style with label boxes
+  var AW = 520, AH = 480;
+  var asvg = "<svg width='" + AW + "' height='" + AH + "' viewBox='0 0 " + AW + " " + AH + "' xmlns='http://www.w3.org/2000/svg' style='max-width:100%;'>";
+
+  // Background
+  asvg += "<rect width='" + AW + "' height='" + AH + "' fill='#fafafa' rx='8'/>";
+
+  // Title
+  asvg += "<text x='260' y='22' text-anchor='middle' font-size='11' font-weight='700' fill='#A88900' font-family='Arial' letter-spacing='2'>FICHA DE PERIMETROS</text>";
+
+  // ── Human silhouette (centered at x=260)
+  var cx = 260;
+  // Head
+  asvg += "<ellipse cx='" + cx + "' cy='55' rx='22' ry='26' fill='#333'/>";
+  // Neck
+  asvg += "<rect x='" + (cx-8) + "' y='78' width='16' height='14' fill='#333'/>";
+  // Shoulders
+  asvg += "<path d='M " + (cx-50) + " 100 Q " + (cx-30) + " 88 " + cx + " 90 Q " + (cx+30) + " 88 " + (cx+50) + " 100 L " + (cx+50) + " 115 Q " + (cx+28) + " 103 " + cx + " 103 Q " + (cx-28) + " 103 " + (cx-50) + " 115 Z' fill='#333'/>";
+  // Torso
+  asvg += "<path d='M " + (cx-38) + " 100 L " + (cx+38) + " 100 L " + (cx+34) + " 200 L " + (cx-34) + " 200 Z' fill='#2a2a2a'/>";
+  // Arms
+  asvg += "<path d='M " + (cx-38) + " 100 L " + (cx-52) + " 102 L " + (cx-60) + " 175 L " + (cx-44) + " 176 L " + (cx-38) + " 108 Z' fill='#333' rx='6'/>"; // left arm
+  asvg += "<path d='M " + (cx+38) + " 100 L " + (cx+52) + " 102 L " + (cx+60) + " 175 L " + (cx+44) + " 176 L " + (cx+38) + " 108 Z' fill='#333' rx='6'/>"; // right arm
+  // Hands
+  asvg += "<ellipse cx='" + (cx-52) + "' cy='182' rx='9' ry='11' fill='#333'/>";
+  asvg += "<ellipse cx='" + (cx+52) + "' cy='182' rx='9' ry='11' fill='#333'/>";
+  // Hips
+  asvg += "<path d='M " + (cx-34) + " 198 L " + (cx+34) + " 198 L " + (cx+38) + " 220 L " + (cx-38) + " 220 Z' fill='#2a2a2a'/>";
+  // Thighs
+  asvg += "<rect x='" + (cx-38) + "' y='218' width='32' height='80' rx='8' fill='#2a2a2a'/>"; // left thigh
+  asvg += "<rect x='" + (cx+6) + "' y='218' width='32' height='80' rx='8' fill='#2a2a2a'/>"; // right thigh
+  // Calves
+  asvg += "<rect x='" + (cx-36) + "' y='296' width='28' height='75' rx='7' fill='#333'/>"; // left calf
+  asvg += "<rect x='" + (cx+8) + "' y='296' width='28' height='75' rx='7' fill='#333'/>"; // right calf
+  // Feet
+  asvg += "<ellipse cx='" + (cx-22) + "' cy='376' rx='16' ry='8' fill='#333'/>";
+  asvg += "<ellipse cx='" + (cx+22) + "' cy='376' rx='16' ry='8' fill='#333'/>";
+
+  // ── Label box helper
+  function labelBox(x, y, title, val, anchor) {
+    if (!val || Number(val) === 0) return "";
+    var bw = 90, bh = 30;
+    var bx = (anchor === "end") ? x - bw : x;
+    var out = "<rect x='" + bx + "' y='" + (y - bh/2) + "' width='" + bw + "' height='" + bh + "' rx='5' fill='#C9A800' opacity='0.15' stroke='#C9A800' stroke-width='1'/>";
+    out += "<text x='" + (bx + bw/2) + "' y='" + (y - 5) + "' text-anchor='middle' font-size='8' font-weight='700' fill='#A88900' font-family='Arial'>" + title + "</text>";
+    out += "<text x='" + (bx + bw/2) + "' y='" + (y + 8) + "' text-anchor='middle' font-size='10' font-weight='900' fill='#333' font-family='Arial'>" + val + " cm</text>";
+    return out;
+  }
+
+  // ── Connector line + dot
+  function connector(bx, by, anchor, tx, ty) {
+    var lineX = (anchor === "end") ? bx : bx + 90;
+    return "<line x1='" + lineX + "' y1='" + by + "' x2='" + tx + "' y2='" + ty + "' stroke='#C9A800' stroke-width='1' stroke-dasharray='4,2' opacity='0.7'/>" +
+           "<circle cx='" + tx + "' cy='" + ty + "' r='3.5' fill='#C9A800'/>";
+  }
+
+  // RIGHT side labels (x=355+, anchor=start)
+  var rx = 362;
+  // Ombro
+  if (pmap.ombro) { asvg += connector(rx, 98, "start", cx+38, 98); asvg += labelBox(rx, 98, "OMBRO", pmap.ombro, "start"); }
+  // Torax
+  if (pmap.torax) { asvg += connector(rx, 120, "start", cx+32, 120); asvg += labelBox(rx, 120, "TORAX", pmap.torax, "start"); }
+  // Abdomen
+  if (pmap.abdomen) { asvg += connector(rx, 148, "start", cx+28, 148); asvg += labelBox(rx, 148, "ABDOMEN", pmap.abdomen, "start"); }
+  // Cintura
+  if (pmap.cintura) { asvg += connector(rx, 172, "start", cx+28, 170); asvg += labelBox(rx, 172, "CINTURA", pmap.cintura, "start"); }
+  // Anca/Gluteos
+  if (pmap.anca) { asvg += connector(rx, 200, "start", cx+32, 210); asvg += labelBox(rx, 200, "ANCA/GLUTEOS", pmap.anca, "start"); }
+  // Braco Direito
+  if (pmap.bracoRD) { asvg += connector(rx, 240, "start", cx+52, 135); asvg += labelBox(rx, 240, "BRACO DIR.", pmap.bracoRD, "start"); }
+  // Braco Esquerdo
+  if (pmap.bracoRE) { asvg += connector(rx, 268, "start", cx+48, 155); asvg += labelBox(rx, 268, "BRACO ESQ.", pmap.bracoRE, "start"); }
+
+  // LEFT side labels (x=98, anchor=end)
+  var lx = 98;
+  // Coxa Direita
+  if (pmap.coxaD) { asvg += connector(lx, 248, "end", cx-22, 248); asvg += labelBox(lx, 248, "COXA DIR.", pmap.coxaD, "end"); }
+  // Coxa Esquerda
+  if (pmap.coxaE) { asvg += connector(lx, 278, "end", cx+22, 260); asvg += labelBox(lx, 278, "COXA ESQ.", pmap.coxaE, "end"); }
+  // Gemeo Direito
+  if (pmap.gemeoD) { asvg += connector(lx, 318, "end", cx-22, 318); asvg += labelBox(lx, 318, "GEMEO DIR.", pmap.gemeoD, "end"); }
+  // Gemeo Esquerdo
+  if (pmap.gemeoE) { asvg += connector(lx, 348, "end", cx+22, 340); asvg += labelBox(lx, 348, "GEMEO ESQ.", pmap.gemeoE, "end"); }
+
+  asvg += "</svg>";
+  var avatarSVG = asvg;
+
+  // ── Evolution charts in SVG (for all metrics across evaluations)
+ in SVG (for all metrics across evaluations)
+  function buildChartSVG(avsList, field, label, unit) {
+    var pts = [];
+    for (var i = 0; i < avsList.length; i++) {
+      var v = avsList[i][field];
+      if (v && Number(v) > 0) pts.push({ d: avsList[i].dataAv || "", v: Number(v) });
+    }
+    if (pts.length < 2) return "";
+    var W = 240, H = 80, PL = 30, PR = 10, PT = 14, PB = 18;
+    var cw = W - PL - PR, ch = H - PT - PB;
+    var vals = pts.map(function(p) { return p.v; });
+    var minV = Math.min.apply(null, vals), maxV = Math.max.apply(null, vals);
+    if (minV === maxV) { minV = Math.max(0, minV - 1); maxV = maxV + 1; }
+    var rng = maxV - minV;
+    minV = Math.max(0, minV - rng * 0.1); maxV = maxV + rng * 0.1;
+    function xp(i) { return PL + i * (cw / (pts.length - 1)); }
+    function yp(v) { return PT + ch - ((v - minV) / (maxV - minV)) * ch; }
+
+    var out = "<svg width='" + W + "' height='" + H + "' xmlns='http://www.w3.org/2000/svg'>";
+    // grid
+    for (var g = 0; g <= 2; g++) {
+      var gy = PT + g * (ch / 2);
+      var gv = maxV - g * (maxV - minV) / 2;
+      out += "<line x1='" + PL + "' y1='" + gy + "' x2='" + (PL+cw) + "' y2='" + gy + "' stroke='#ddd' stroke-dasharray='2,3'/>";
+      out += "<text x='" + (PL-3) + "' y='" + (gy+3) + "' text-anchor='end' font-size='7' fill='#999' font-family='Arial'>" + Math.round(gv) + "</text>";
+    }
+    // area
+    var apath = "M " + xp(0) + " " + (PT+ch);
+    for (var i = 0; i < pts.length; i++) apath += " L " + xp(i) + " " + yp(pts[i].v);
+    apath += " L " + xp(pts.length-1) + " " + (PT+ch) + " Z";
+    out += "<path d='" + apath + "' fill='#C9A800' opacity='0.15'/>";
+    // line
+    var lpath = "M " + xp(0) + " " + yp(pts[0].v);
+    for (var i = 1; i < pts.length; i++) lpath += " L " + xp(i) + " " + yp(pts[i].v);
+    out += "<path d='" + lpath + "' fill='none' stroke='#C9A800' stroke-width='2'/>";
+    // dots + labels
+    for (var i = 0; i < pts.length; i++) {
+      out += "<circle cx='" + xp(i) + "' cy='" + yp(pts[i].v) + "' r='3' fill='#fff' stroke='#C9A800' stroke-width='1.5'/>";
+      out += "<text x='" + xp(i) + "' y='" + (yp(pts[i].v)-5) + "' text-anchor='middle' font-size='7' fill='#C9A800' font-weight='bold' font-family='Arial'>" + pts[i].v + unit + "</text>";
+      var dp = pts[i].d.split("/");
+      out += "<text x='" + xp(i) + "' y='" + (H-2) + "' text-anchor='middle' font-size='7' fill='#999' font-family='Arial'>" + (dp[0]||"") + "/" + (dp[1]||"") + "</text>";
+    }
+    out += "</svg>";
+    return "<div style='margin-bottom:10px;'><div style='font-size:9px;font-weight:700;color:#A88900;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;'>" + label + "</div>" + out + "</div>";
+  }
+
+  var chartsHtml = "";
+  if (avs.length >= 2) {
+    var chartFields = [
+      {f:"peso",l:"Peso",u:"kg"}, {f:"imc",l:"IMC",u:""},
+      {f:"massaGorda",l:"Massa Gorda",u:"%"}, {f:"cintura",l:"Cintura",u:"cm"}
+    ];
+    var chartCols = "";
+    for (var ci = 0; ci < chartFields.length; ci++) {
+      var cf = chartFields[ci];
+      var cHtml = buildChartSVG(avs, cf.f, cf.l, cf.u);
+      if (cHtml) chartCols += "<div>" + cHtml + "</div>";
+    }
+    if (chartCols) {
+      chartsHtml = "<div class='sec'><div class='sec-t'>Evolucao nas Avaliacoes</div>" +
+        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;'>" + chartCols + "</div></div>";
+    }
+  }
+
+  // ── Recommendations
+  var recs = getRecomendacoes(av, sexo);
+  var recsHtml = recs.length
+    ? recs.map(function(r) { return "<div style='padding:4px 0 4px 8px;border-left:3px solid #C9A800;font-size:11px;color:#444;margin-bottom:4px;'>" + r + "</div>"; }).join("")
+    : "<div style='color:#2e7d32;font-size:11px;'>Todos os indicadores dentro dos valores de referencia OMS.</div>";
+
+  // ── Build full HTML (no URL bar, same-tab print)
+  var html = "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'/>" +
+    "<meta name='viewport' content='width=device-width,initial-scale=1'/>" +
+    "<title>Avaliacao - " + cliente.nome + "</title>" +
+    "<style>" +
+    "@page{margin:10mm 8mm;}" +
+    "body{font-family:Arial,sans-serif;color:#333;background:#fff;margin:0;padding:12px;}" +
+    ".hdr{display:flex;align-items:center;gap:14px;border-bottom:3px solid #C9A800;padding-bottom:10px;margin-bottom:14px;}" +
+    ".logo{width:48px;height:48px;background:#C9A800;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#000;flex-shrink:0;}" +
+    ".sec{border:1px solid #e0e0e0;border-radius:8px;padding:10px;margin-bottom:10px;}" +
+    ".sec-t{font-size:9px;font-weight:700;color:#A88900;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid #f0f0f0;}" +
+    "table{width:100%;border-collapse:collapse;}th{background:#f5f5f5;padding:5px 8px;font-size:9px;text-align:left;color:#777;}" +
+    ".btn{background:#C9A800;color:#000;border:none;border-radius:8px;padding:10px 22px;font-weight:800;font-size:13px;cursor:pointer;margin:4px;}" +
+    ".btn-back{background:#333;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-weight:700;font-size:13px;cursor:pointer;margin:4px;}" +
+    "@media print{.no-print{display:none!important;}}" +
+    "</style></head><body>" +
+
+    "<div class='hdr'>" +
+    "<div class='logo'>MR</div>" +
+    "<div><div style='font-size:19px;font-weight:900;'>MAZINHO RODRIGUES</div>" +
+    "<div style='font-size:10px;color:#A88900;letter-spacing:2px;text-transform:uppercase;'>Personal Trainer — Avaliacao Fisica</div></div>" +
+    "</div>" +
+
+    "<div class='sec'><div class='sec-t'>Dados do Cliente</div>" +
+    "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;'>" +
+    "<div><div style='font-size:9px;color:#888;'>Nome</div><div style='font-weight:700;font-size:13px;'>" + cliente.nome + "</div></div>" +
+    "<div><div style='font-size:9px;color:#888;'>Sexo</div><div style='font-weight:700;'>" + (sexo === "F" ? "Feminino" : "Masculino") + "</div></div>" +
+    (cliente.dataNasc ? "<div><div style='font-size:9px;color:#888;'>Nasc.</div><div style='font-weight:700;'>" + cliente.dataNasc + "</div></div>" : "<div></div>") +
+    "<div><div style='font-size:9px;color:#888;'>Data Avaliacao</div><div style='font-weight:700;'>" + (av.dataAv || "—") + "</div></div>" +
+    (av.peso ? "<div><div style='font-size:9px;color:#888;'>Peso</div><div style='font-weight:700;'>" + av.peso + " kg</div></div>" : "") +
+    (av.altura ? "<div><div style='font-size:9px;color:#888;'>Altura</div><div style='font-weight:700;'>" + av.altura + " cm</div></div>" : "") +
+    (av.objetivo ? "<div style='grid-column:1/4'><div style='font-size:9px;color:#888;'>Objetivo</div><div style='font-weight:700;'>" + av.objetivo + "</div></div>" : "") +
+    "</div></div>" +
+
+    "<div class='sec'><div class='sec-t'>Analise Biometrica — Referencias OMS</div>" +
+    "<table><thead><tr><th>Indicador</th><th>Valor</th><th>Referencia Ideal</th><th>Classificacao</th></tr></thead>" +
+    "<tbody>" + rows + "</tbody></table></div>" +
+
+    "<div class='sec'><div class='sec-t'>Perimetros Corporais</div>" +
+    "<div style='text-align:center;'>" + avatarSVG + "</div></div>" +
+
+    chartsHtml +
+
+    "<div class='sec' style='background:#fffdf0;border-color:#C9A800;'>" +
+    "<div class='sec-t'>Objetivos de Saude (Recomendacoes OMS)</div>" +
+    recsHtml + "</div>" +
+
+    "<div style='margin-top:12px;padding-top:10px;border-top:1px solid #e0e0e0;font-size:9px;color:#bbb;text-align:center;'>" +
+    "Gerado por Mazinho Rodrigues Personal Trainer — Valores baseados nas diretrizes da OMS — Nao substitui avaliacao medica" +
+    "</div>" +
+
+    "<div style='text-align:center;margin-top:14px;' class='no-print'>" +
+    "<button class='btn' onclick='window.print()'>Imprimir / Salvar PDF</button>" +
+    "<button class='btn-back' onclick='window.close()'>Voltar</button>" +
+    "</div>" +
+    "</body></html>";
+
+  var win = window.open("", "_blank");
+  if (!win) { alert("Permitir popups para gerar PDF."); return; }
+  win.document.write(html);
+  win.document.close();
+}
+
+
+// ── VIEW: Treinos (Grafico + Registros) ────────────────────
+var STATE = { tab: "treinos", clienteId: null, fAluno: "Todos", fEx: "", metric: "PesoMax", cmp: false, search: "" };
+
+function buildTreinosView(wrap) {
+  var registros = DB.registros;
+  var alunos = uniq(registros.map(function(r) { return r.aluno; }));
+  var exForA = (STATE.fAluno === "Todos")
+    ? uniq(registros.map(function(r) { return r.exercicio; }))
+    : uniq(registros.filter(function(r) { return r.aluno === STATE.fAluno; }).map(function(r) { return r.exercicio; }));
+  var selEx = (STATE.fEx && exForA.indexOf(STATE.fEx) >= 0) ? STATE.fEx : (exForA[0] || "");
+
+  var activeA = (STATE.cmp || STATE.fAluno === "Todos")
+    ? uniq(registros.filter(function(r) { return r.exercicio === selEx; }).map(function(r) { return r.aluno; }))
+    : (STATE.fAluno !== "Todos" ? [STATE.fAluno] : []);
+
+  // Chart data
+  var byDate = {};
+  var filtered = registros.filter(function(r) { return r.exercicio === selEx; });
+  if (!STATE.cmp && STATE.fAluno !== "Todos") {
+    filtered = filtered.filter(function(r) { return r.aluno === STATE.fAluno; });
+  }
+  for (var i = 0; i < filtered.length; i++) {
+    var r = filtered[i];
+    if (!byDate[r.data]) byDate[r.data] = { Data: r.data };
+    var prev = byDate[r.data][r.aluno];
+    var cur = (STATE.metric === "Volume") ? r.reps * r.peso : (STATE.metric === "Reps") ? r.reps : r.peso;
+    byDate[r.data][r.aluno] = (prev == null) ? cur : (STATE.metric === "PesoMax") ? Math.max(prev, cur) : prev + cur;
+  }
+  var chartPts = [];
+  for (var k in byDate) { if (byDate.hasOwnProperty(k)) chartPts.push(byDate[k]); }
+  chartPts.sort(function(a, b) { return parseDate(a.Data) - parseDate(b.Data); });
+
+  // Stats
+  var statsAluno = (STATE.fAluno === "Todos" && activeA.length) ? activeA[0] : STATE.fAluno;
+  var statsVals = [];
+  for (var i = 0; i < chartPts.length; i++) {
+    if (chartPts[i][statsAluno] != null) statsVals.push(chartPts[i][statsAluno]);
+  }
+  var stats = statsVals.length ? {
+    max: Math.max.apply(null, statsVals),
+    last: statsVals[statsVals.length - 1],
+    delta: statsVals[statsVals.length - 1] - statsVals[0],
+    sessions: statsVals.length
+  } : null;
+
+  var ML = { PesoMax: "Peso Max", Volume: "Volume", Reps: "Reps" };
+  var MU = { PesoMax: "kg", Volume: "kg", Reps: "reps" };
+
+  var ss = { background: "#141414", color: "#fff", border: "1px solid #A88900", borderRadius: "8px", padding: "7px 10px", cursor: "pointer", outline: "none" };
+
+  // Filters row
+  var filters = el("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "12px", background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "10px", padding: "10px 12px" } });
+
+  var sA = mkSel({ cls: "isel", onChange: function(e) { STATE.fAluno = e.target.value; STATE.cmp = false; renderApp(); } },
+    [{ v: "Todos", l: "Todos" }].concat(alunos.map(function(a) { return { v: a, l: a }; })));
+  sA.value = STATE.fAluno;
+  var fgA = el("div", { style: { display: "flex", flexDirection: "column", gap: "3px", minWidth: "120px" } });
+  fgA.appendChild(el("div", { cls: "flabel" }, ["Aluno"]));
+  fgA.appendChild(sA);
+  filters.appendChild(fgA);
+
+  var sEx = mkSel({ cls: "isel", onChange: function(e) { STATE.fEx = e.target.value; renderApp(); } },
+    exForA.map(function(x) { return { v: x, l: x }; }));
+  sEx.value = selEx;
+  var fgEx = el("div", { style: { display: "flex", flexDirection: "column", gap: "3px", flex: "1", minWidth: "140px" } });
+  fgEx.appendChild(el("div", { cls: "flabel" }, ["Exercicio"]));
+  fgEx.appendChild(sEx);
+  filters.appendChild(fgEx);
+
+  var fgM = el("div", { style: { display: "flex", flexDirection: "column", gap: "3px" } });
+  fgM.appendChild(el("div", { cls: "flabel" }, ["Metrica"]));
+  var mBtns = el("div", { style: { display: "flex", gap: "4px" } });
+  ["PesoMax", "Volume", "Reps"].forEach(function(k) {
+    var act = STATE.metric === k;
+    var btn = el("button", { style: { background: act ? "#C9A800" : "#141414", color: act ? "#000" : "#777", border: "1px solid " + (act ? "#C9A800" : "#2A2A2A"), borderRadius: "7px", padding: "6px 8px", fontSize: "10px", cursor: "pointer", fontWeight: act ? "700" : "400" } }, [ML[k]]);
+    (function(key) { btn.addEventListener("click", function() { STATE.metric = key; renderApp(); }); })(k);
+    mBtns.appendChild(btn);
+  });
+  fgM.appendChild(mBtns);
+  filters.appendChild(fgM);
+
+  if (STATE.fAluno !== "Todos") {
+    var fgC = el("div", { style: { display: "flex", flexDirection: "column", gap: "3px", justifyContent: "flex-end" } });
+    fgC.appendChild(el("div", { cls: "flabel" }, ["Comparar"]));
+    var cBtn = el("button", { style: { background: STATE.cmp ? "#C9A800" : "#141414", color: STATE.cmp ? "#000" : "#777", border: "1px solid " + (STATE.cmp ? "#C9A800" : "#2A2A2A"), borderRadius: "7px", padding: "6px 10px", fontSize: "10px", cursor: "pointer" } }, [STATE.cmp ? "Comparando" : "Comparar"]);
+    cBtn.addEventListener("click", function() { STATE.cmp = !STATE.cmp; renderApp(); });
+    fgC.appendChild(cBtn);
+    filters.appendChild(fgC);
+  }
+  wrap.appendChild(filters);
+
+  // KPIs
+  if (stats) {
+    var kpis = el("div", { style: { display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" } });
+    var kdata = [
+      { l: "Peso Max", v: stats.max, u: "kg", d: null },
+      { l: "Ultimo", v: stats.last, u: MU[STATE.metric], d: null },
+      { l: "Evolucao", v: stats.delta, u: MU[STATE.metric], d: stats.delta },
+      { l: "Sessoes", v: stats.sessions, u: "", d: null }
+    ];
+    for (var ki = 0; ki < kdata.length; ki++) {
+      var k = kdata[ki];
+      var kp = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "10px", padding: "10px 12px", flex: "1", minWidth: "80px" } });
+      kp.appendChild(el("div", { style: { fontSize: "9px", color: "#777", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "4px" } }, [k.l]));
+      var kvRow = el("div", { style: { fontSize: "18px", fontWeight: "700" } });
+      kvRow.appendChild(document.createTextNode(fmt(k.v)));
+      kvRow.appendChild(el("span", { style: { fontSize: "9px", color: "#777", marginLeft: "2px" } }, [k.u]));
+      kp.appendChild(kvRow);
+      if (k.d != null) {
+        kp.appendChild(el("div", { style: { marginTop: "3px", fontSize: "10px", fontWeight: "600", color: k.d > 0 ? "#4CAF50" : k.d < 0 ? "#F44336" : "#777" } },
+          [(k.d > 0 ? "▲ " : k.d < 0 ? "▼ " : "— ") + fmt(Math.abs(k.d)) + " " + k.u]));
+      }
+      kpis.appendChild(kp);
+    }
+    wrap.appendChild(kpis);
+  }
+
+  // Chart card
+  var cc = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "12px", padding: "14px 14px 8px", marginBottom: "12px" } });
+  cc.appendChild(el("div", { style: { fontSize: "13px", fontWeight: "700", marginBottom: "3px" } }, [selEx || "—"]));
+  cc.appendChild(el("div", { style: { fontSize: "10px", color: "#777", marginBottom: "10px" } }, [ML[STATE.metric] + " — " + activeA.join(", ")]));
+
+  var ACOLS = ["#C9A800", "#E8C840", "#F5E070", "#FFD700"];
+  if (chartPts.length < 2) {
+    cc.appendChild(el("div", { style: { height: "80px", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", fontSize: "13px" } }, ["Minimo 2 sessoes para grafico."]));
+  } else {
+    for (var ai = 0; ai < activeA.length; ai++) {
+      var a = activeA[ai];
+      var apts = [];
+      for (var pi = 0; pi < chartPts.length; pi++) {
+        if (chartPts[pi][a] != null) apts.push({ d: chartPts[pi].Data, v: chartPts[pi][a] });
+      }
+      if (apts.length < 2) continue;
+      var aLabel = el("div", { style: { fontSize: "10px", color: ACOLS[ai % ACOLS.length], fontWeight: "700", marginBottom: "2px" } }, [a]);
+      cc.appendChild(aLabel);
+      var cDiv = el("div", { cls: "chart-wrap" });
+      cc.appendChild(cDiv);
+      (function(div, points, unit) {
+        setTimeout(function() { svgLine(div, points, unit); }, 10);
+      })(cDiv, apts, MU[STATE.metric]);
+    }
+  }
+  wrap.appendChild(cc);
+}
+
+function buildRegistrosView(wrap) {
+  var searchRow = el("div", { style: { display: "flex", gap: "8px", marginBottom: "10px", flexWrap: "wrap", alignItems: "center" } });
+  var alunos = uniq(DB.registros.map(function(r) { return r.aluno; }));
+
+  var sA = mkSel({ cls: "isel", style: { minWidth: "130px" }, onChange: function(e) { STATE.fAluno = e.target.value; renderApp(); } },
+    [{ v: "Todos", l: "Todos os alunos" }].concat(alunos.map(function(a) { return { v: a, l: a }; })));
+  sA.value = STATE.fAluno;
+
+  var iSearch = mkInput("text", { placeholder: "Buscar...", style: { flex: "1", minWidth: "130px" }, value: STATE.search || "" });
+  iSearch.addEventListener("input", function(e) { STATE.search = e.target.value; renderApp(); });
+  searchRow.appendChild(sA);
+  searchRow.appendChild(iSearch);
+  wrap.appendChild(searchRow);
+
+  var visible = DB.registros.filter(function(r) {
+    if (STATE.fAluno !== "Todos" && r.aluno !== STATE.fAluno) return false;
+    if (STATE.search) {
+      var s = STATE.search.toLowerCase();
+      return r.exercicio.toLowerCase().indexOf(s) >= 0 || r.aluno.toLowerCase().indexOf(s) >= 0;
+    }
+    return true;
+  }).sort(function(a, b) { return parseDate(b.data) - parseDate(a.data) || a.aluno.localeCompare(b.aluno) || a.serie - b.serie; });
+
+  wrap.appendChild(el("div", { style: { color: "#777", fontSize: "11px", marginBottom: "8px" } }, [visible.length + " registros"]));
+
+  var tw = el("div", { style: { border: "1px solid #2A2A2A", borderRadius: "11px", overflow: "hidden" } });
+  var ts = el("div", { style: { overflowX: "auto" } });
+  var tbl = el("table");
+  var th = el("thead");
+  var htr = el("tr");
+  ["Data","Aluno","Exercicio","T","S","Reps","Peso","Vol",""].forEach(function(h) {
+    htr.appendChild(el("th", null, [h]));
+  });
+  th.appendChild(htr); tbl.appendChild(th);
+  var tb = el("tbody");
+
+  for (var i = 0; i < visible.length; i++) {
+    var r = visible[i];
+    var tr = el("tr", { cls: i % 2 === 0 ? "odd" : "even", style: { cursor: "pointer" } });
+    (function(rec) {
+      tr.addEventListener("click", function() { showModalTreino(rec); });
+    })(r);
+    tr.appendChild(el("td", { style: { whiteSpace: "nowrap" } }, [r.data]));
+    tr.appendChild(el("td", null, [el("span", { style: { background: "rgba(201,168,0,0.15)", color: "#C9A800", borderRadius: "5px", padding: "2px 6px", fontSize: "10px", fontWeight: "600" } }, [r.aluno])]));
+    tr.appendChild(el("td", { style: { maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, [r.exercicio]));
+    tr.appendChild(el("td", { style: { textAlign: "center", color: "#777" } }, [r.treino]));
+    tr.appendChild(el("td", { style: { textAlign: "center" } }, [String(r.serie)]));
+    tr.appendChild(el("td", { style: { textAlign: "center" } }, [String(r.reps)]));
+    tr.appendChild(el("td", { style: { fontWeight: "700", color: "#C9A800" } }, [fmt(r.peso) + "kg"]));
+    tr.appendChild(el("td", { style: { color: "#777" } }, [fmt(r.reps * r.peso, 0)]));
+    tr.appendChild(el("td", { style: { textAlign: "center" } }, [el("span", { style: { fontSize: "10px", color: "#777", background: "#1C1C1C", padding: "2px 5px", borderRadius: "4px", border: "1px solid #2A2A2A" } }, ["edit"])]));
+    tb.appendChild(tr);
+  }
+  if (!visible.length) {
+    tb.appendChild(el("tr", null, [el("td", { colSpan: 9, style: { textAlign: "center", padding: "30px", color: "#777" } }, ["Nenhum registo encontrado."])]));
+  }
+  tbl.appendChild(tb); ts.appendChild(tbl); tw.appendChild(ts);
+  wrap.appendChild(tw);
+}
+// ── VIEW: Perfil Cliente + Avaliação ──────────────────────
+function buildPerfilView(wrap) {
+  var cliente = null;
+  for (var i = 0; i < DB.clientes.length; i++) {
+    if (DB.clientes[i].id === STATE.clienteId) { cliente = DB.clientes[i]; break; }
+  }
+  if (!cliente) {
+    wrap.appendChild(el("div", { style: { textAlign: "center", padding: "40px", color: "#777" } }, [
+      el("div", { style: { fontSize: "28px", marginBottom: "8px" } }, ["👤"]),
+      "Selecione um cliente.",
+      el("button", { cls: "btn-gold", style: { display: "block", margin: "14px auto 0" }, onClick: function() { STATE.tab = "clientes"; renderApp(); } }, ["Ver clientes"])
+    ]));
+    return;
+  }
+
+  var avs = cliente.avaliacoes || [];
+  var latest = avs.length ? avs[avs.length - 1] : null;
+  var sexo = cliente.sexo || "M";
+
+  // Header cliente
+  var ch = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "12px", padding: "14px", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" } });
+  ch.appendChild(el("div", null, [
+    el("div", { style: { fontSize: "18px", fontWeight: "800" } }, [cliente.nome]),
+    el("div", { style: { fontSize: "11px", color: "#777", marginTop: "3px" } }, [
+      (sexo === "F" ? "Feminino" : "Masculino") + (cliente.dataNasc ? " · " + cliente.dataNasc : "") + (cliente.altura ? " · " + cliente.altura + "cm" : "") + " · " + avs.length + " avaliacao(oes)"
+    ])
+  ]));
+  var ab = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });
+  ab.appendChild(el("button", { cls: "btn-sm", onClick: function() { showModalCliente(cliente); } }, ["Editar"]));
+  ab.appendChild(el("button", { cls: "btn-sm", onClick: function() { showModalAvaliacao(cliente); } }, ["+ Avaliacao"]));
+  if (latest) {
+    ab.appendChild(el("button", { cls: "btn-gold", style: { fontSize: "11px", padding: "6px 12px" }, onClick: function() { exportPDF(cliente, avs.length - 1); } }, ["PDF Ultima"]));
+  }
+  ch.appendChild(ab);
+  wrap.appendChild(ch);
+
+  if (!latest) {
+    wrap.appendChild(el("div", { style: { textAlign: "center", padding: "30px", color: "#777" } }, [
+      el("div", { style: { fontSize: "26px", marginBottom: "8px" } }, ["📋"]),
+      "Nenhuma avaliacao ainda.",
+      el("button", { cls: "btn-gold", style: { display: "block", margin: "14px auto 0" }, onClick: function() { showModalAvaliacao(cliente); } }, ["+ Nova Avaliacao"])
+    ]));
+    return;
+  }
+
+  // Health Summary
+  var hs = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "12px", padding: "14px", marginBottom: "12px" } });
+  hs.appendChild(el("div", { cls: "sec-title" }, ["Analise de Saude — " + latest.dataAv]));
+
+  var metrics = [];
+  if (latest.imc) { var m1 = cImc(latest.imc); metrics.push({ n: "IMC", v: latest.imc + " kg/m²", cls: m1.cls, l: m1.label, r: "Ideal: 18.5–24.9" }); }
+  if (latest.massaGorda) { var m2 = cGordura(latest.massaGorda, sexo); metrics.push({ n: "Massa Gorda", v: latest.massaGorda + "%", cls: m2.cls, l: m2.label, r: "Ideal: " + (sexo === "F" ? "14–24%" : "6–17%") }); }
+  if (latest.gorduraVisceral) { var m3 = cVisceral(latest.gorduraVisceral); metrics.push({ n: "Gordura Visceral", v: "Nivel " + latest.gorduraVisceral, cls: m3.cls, l: m3.label, r: "Ideal: 1–9" }); }
+  if (latest.aguaCorporal) { var m4 = cAgua(latest.aguaCorporal, sexo); metrics.push({ n: "Agua Corporal", v: latest.aguaCorporal + "%", cls: m4.cls, l: m4.label, r: "Ideal: " + (sexo === "F" ? "45–60%" : "50–65%") }); }
+  if (latest.pressaoSist && latest.pressaoDiast) { var m5 = cPressao(latest.pressaoSist, latest.pressaoDiast); metrics.push({ n: "Pressao Arterial", v: latest.pressaoSist + "/" + latest.pressaoDiast + " mmHg", cls: m5.cls, l: m5.label, r: "Ideal: < 120/80" }); }
+  if (latest.cintura) { var m6 = cCintura(latest.cintura, sexo); metrics.push({ n: "Cintura", v: latest.cintura + " cm", cls: m6.cls, l: m6.label, r: "Ideal: " + (sexo === "F" ? "< 80cm" : "< 94cm") }); }
+
+  if (metrics.length) {
+    var mb = el("div", { style: { background: "#141414", borderRadius: "8px", padding: "8px 10px" } });
+    for (var mi = 0; mi < metrics.length; mi++) {
+      var m = metrics[mi];
+      var mrow = el("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1a1a1a" } });
+      var mleft = el("div", null, [
+        el("div", { style: { fontSize: "12px", color: "#aaa" } }, [m.n]),
+        el("div", { style: { fontSize: "9px", color: "#555", marginTop: "2px" } }, [m.r])
+      ]);
+      var mright = el("div", { style: { textAlign: "right" } }, [
+        el("div", { style: { fontSize: "13px", fontWeight: "700" } }, [m.v]),
+        badge(m.cls, m.l)
+      ]);
+      mrow.appendChild(mleft); mrow.appendChild(mright);
+      mb.appendChild(mrow);
+    }
+    hs.appendChild(mb);
+  }
+
+  var recs = getRecomendacoes(latest, sexo);
+  if (recs.length) {
+    var rb = el("div", { style: { marginTop: "10px", background: "rgba(201,168,0,0.08)", border: "1px solid rgba(201,168,0,0.2)", borderRadius: "8px", padding: "10px" } });
+    rb.appendChild(el("div", { style: { fontSize: "10px", color: "#C9A800", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase", marginBottom: "5px" } }, ["Objetivos de Saude"]));
+    for (var ri = 0; ri < recs.length; ri++) {
+      rb.appendChild(el("div", { style: { fontSize: "11px", color: "#ccc", marginBottom: "3px" } }, ["• " + recs[ri]]));
+    }
+    hs.appendChild(rb);
+  }
+  wrap.appendChild(hs);
+
+  // Graficos avaliacao
+  if (avs.length >= 2) {
+    var gbox = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "12px", padding: "14px", marginBottom: "12px" } });
+    gbox.appendChild(el("div", { cls: "sec-title" }, ["Evolucao nas Avaliacoes"]));
+    var cgrid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" } });
+    var gcharts = [
+      { f: "peso", l: "Peso", u: "kg" },
+      { f: "imc", l: "IMC", u: "" },
+      { f: "massaGorda", l: "Massa Gorda", u: "%" },
+      { f: "cintura", l: "Cintura", u: "cm" }
+    ];
+    for (var gc = 0; gc < gcharts.length; gc++) {
+      var gt = gcharts[gc];
+      var pts2 = avs.filter(function(a) { return a[gt.f] && Number(a[gt.f]) > 0; });
+      if (pts2.length < 2) continue;
+      var cbox = el("div", { style: { background: "#141414", borderRadius: "8px", padding: "8px" } });
+      cbox.appendChild(el("div", { style: { fontSize: "10px", color: "#C9A800", fontWeight: "700", marginBottom: "4px" } }, [gt.l]));
+      var cDiv = el("div");
+      cbox.appendChild(cDiv);
+      cgrid.appendChild(cbox);
+      (function(div, field, pts3, unit) {
+        setTimeout(function() {
+          var mapped = pts3.map(function(a) { return { d: a.dataAv, v: a[field] }; });
+          svgLine(div, mapped, unit);
+        }, 10);
+      })(cDiv, gt.f, pts2, gt.u);
+    }
+    gbox.appendChild(cgrid);
+    wrap.appendChild(gbox);
+  }
+
+  // Historico avaliacoes
+  var hist = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "12px", padding: "14px", marginBottom: "12px" } });
+  hist.appendChild(el("div", { cls: "sec-title" }, ["Historico (" + avs.length + ")"]));
+  for (var hi = avs.length - 1; hi >= 0; hi--) {
+    var av2 = avs[hi];
+    var hcard = el("div", { style: { background: "#141414", border: "1px solid #2A2A2A", borderRadius: "8px", padding: "10px", marginBottom: "6px", display: "flex", justifyContent: "space-between", alignItems: "center" } });
+    hcard.appendChild(el("div", null, [
+      el("div", { style: { fontWeight: "700", fontSize: "13px" } }, [av2.dataAv || "Sem data"]),
+      el("div", { style: { fontSize: "10px", color: "#777", marginTop: "2px" } }, [
+        (av2.peso ? "Peso: " + av2.peso + "kg" : "") + (av2.imc ? " · IMC: " + av2.imc : "") + (av2.objetivo ? " · " + av2.objetivo : "")
+      ])
+    ]));
+    (function(avRec, avIdx) {
+      var btnWrap = el("div", { style: { display: "flex", gap: "5px" } });
+      btnWrap.appendChild(el("button", { cls: "btn-sm", onClick: function() { exportPDF(cliente, avIdx); } }, ["PDF"]));
+      btnWrap.appendChild(el("button", { cls: "btn-sm", onClick: function() { showModalAvaliacao(cliente, avRec); } }, ["Editar"]));
+      hcard.appendChild(btnWrap);
+    })(av2, hi);
+    hist.appendChild(hcard);
+  }
+  wrap.appendChild(hist);
+
+  // Perimetros
+  if (latest) {
+    var hasPerim = false;
+    for (var pi = 0; pi < PERIMETROS.length; pi++) {
+      if (latest[PERIMETROS[pi][0]] && Number(latest[PERIMETROS[pi][0]]) > 0) { hasPerim = true; break; }
+    }
+    if (hasPerim) {
+      var ps = el("div", { style: { background: "#1C1C1C", border: "1px solid #2A2A2A", borderRadius: "12px", padding: "14px" } });
+      ps.appendChild(el("div", { cls: "sec-title" }, ["Perimetros (cm) — " + latest.dataAv]));
+      var pg = el("div", { cls: "grid3" });
+      for (var pi2 = 0; pi2 < PERIMETROS.length; pi2++) {
+        var pf = PERIMETROS[pi2][0];
+        var pl = PERIMETROS[pi2][1];
+        if (!latest[pf] || Number(latest[pf]) === 0) continue;
+        var pc2 = el("div", { style: { background: "#141414", borderRadius: "7px", padding: "8px", textAlign: "center" } });
+        pc2.appendChild(el("div", { style: { fontSize: "9px", color: "#777", marginBottom: "3px" } }, [pl]));
+        pc2.appendChild(el("div", { style: { fontSize: "16px", fontWeight: "700" } }, [latest[pf]]));
+        pc2.appendChild(el("div", { style: { fontSize: "9px", color: "#C9A800" } }, ["cm"]));
+        pg.appendChild(pc2);
+      }
+      ps.appendChild(pg);
+      wrap.appendChild(ps);
+    }
+  }
+}
+
+function buildClientesView(wrap) {
+  var iSearch = mkInput("text", { placeholder: "Pesquisar cliente...", style: { width: "100%", marginBottom: "12px" }, value: STATE.search || "" });
+  iSearch.addEventListener("input", function(e) { STATE.search = e.target.value; renderApp(); });
+  wrap.appendChild(iSearch);
+
+  var filtered = DB.clientes.filter(function(c) {
+    if (!STATE.search) return true;
+    return c.nome.toLowerCase().indexOf(STATE.search.toLowerCase()) >= 0;
+  });
+
+  if (!filtered.length) {
+    wrap.appendChild(el("div", { style: { textAlign: "center", padding: "40px", color: "#777" } }, [
+      el("div", { style: { fontSize: "36px", marginBottom: "10px" } }, ["👥"]),
+      el("div", { style: { fontSize: "15px", fontWeight: "700", marginBottom: "6px" } }, ["Nenhum cliente"]),
+      el("button", { cls: "btn-gold", style: { marginTop: "10px" }, onClick: function() { showModalCliente(); } }, ["+ Adicionar Cliente"])
+    ]));
+    return;
+  }
+
+  for (var i = 0; i < filtered.length; i++) {
+    var c = filtered[i];
+    var avs = c.avaliacoes || [];
+    var latest = avs.length ? avs[avs.length - 1] : null;
+    var card = el("div", { style: { background: "#141414", border: "1px solid #2A2A2A", borderRadius: "10px", padding: "12px", marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" } });
+    card.appendChild(el("div", null, [
+      el("div", { style: { fontSize: "14px", fontWeight: "700" } }, [c.nome]),
+      el("div", { style: { fontSize: "10px", color: "#777", marginTop: "2px" } }, [
+        (c.sexo === "F" ? "Feminino" : "Masculino") + (c.dataNasc ? " · " + c.dataNasc : "") + " · " + avs.length + " avaliacao(oes)" + (latest ? " · Ultima: " + latest.dataAv : "")
+      ])
+    ]));
+    var cb = el("div", { style: { display: "flex", gap: "6px" } });
+    (function(cliente) {
+      var vBtn = el("button", { cls: "btn-sm" }, ["Ver"]);
+      vBtn.addEventListener("click", function(e) { e.stopPropagation(); STATE.tab = "perfil"; STATE.clienteId = cliente.id; renderApp(); });
+      cb.appendChild(vBtn);
+      if (cliente.avaliacoes && cliente.avaliacoes.length) {
+        var pBtn = el("button", { cls: "btn-sm", style: { color: "#C9A800" } }, ["PDF"]);
+        pBtn.addEventListener("click", function(e) { e.stopPropagation(); exportPDF(cliente, cliente.avaliacoes.length - 1); });
+        cb.appendChild(pBtn);
+      }
+    })(c);
+    card.appendChild(cb);
+    card.addEventListener("click", function() {
+      STATE.tab = "perfil"; STATE.clienteId = c.id; renderApp();
+    });
+    wrap.appendChild(card);
+  }
+}
+// ── MAIN RENDER ────────────────────────────────────────────
+function renderApp() {
+  var app = document.getElementById("app");
+  // Remove only non-overlay children
+  var toRemove = [];
+  for (var i = 0; i < app.children.length; i++) {
+    if (!app.children[i].classList.contains("overlay")) toRemove.push(app.children[i]);
+  }
+  for (var i = 0; i < toRemove.length; i++) toRemove[i].remove();
+
+  var TABS = [
+    { k: "treinos", l: "Treinos" },
+    { k: "registros", l: "Registros" },
+    { k: "clientes", l: "Clientes" },
+    { k: "perfil", l: "Avaliacao" }
+  ];
+
+  // Header
+  var hdr = el("div", { cls: "hdr" });
+  var hLeft = el("div", { style: { display: "flex", alignItems: "center", gap: "12px" } });
+  hLeft.appendChild(el("div", { cls: "logo" }, ["MR"]));
+  hLeft.appendChild(el("div", null, [
+    el("div", { style: { fontSize: "16px", fontWeight: "800", letterSpacing: "1px" } }, ["MAZINHO RODRIGUES"]),
+    el("div", { style: { fontSize: "9px", color: "#C9A800", letterSpacing: "3px", textTransform: "uppercase" } }, ["Personal Trainer"])
+  ]));
+  hdr.appendChild(hLeft);
+
+  // Header action buttons based on tab
+  var hRight = el("div", { style: { display: "flex", gap: "6px" } });
+  if (STATE.tab === "treinos" || STATE.tab === "registros") {
+    var nb = el("button", { cls: "btn-gold", style: { fontSize: "12px", padding: "8px 14px" } }, ["+ Registo"]);
+    nb.addEventListener("click", function() { showModalTreino(); });
+    hRight.appendChild(nb);
+  }
+  if (STATE.tab === "clientes" || STATE.tab === "perfil") {
+    var nc = el("button", { cls: "btn-gold", style: { fontSize: "12px", padding: "8px 14px" } }, ["+ Cliente"]);
+    nc.addEventListener("click", function() { showModalCliente(); });
+    hRight.appendChild(nc);
+  }
+  hdr.appendChild(hRight);
+  app.appendChild(hdr);
+
+  // Tabs bar
+  var tabBar = el("div", { style: { display: "flex", gap: "0", borderBottom: "2px solid #2A2A2A", overflow: "hidden" } });
+  for (var ti = 0; ti < TABS.length; ti++) {
+    var t = TABS[ti];
+    var act = STATE.tab === t.k;
+    var tbtn = el("button", { style: {
+      background: act ? "#C9A800" : "#141414",
+      color: act ? "#000" : "#777",
+      border: "none",
+      borderRight: "1px solid #2A2A2A",
+      padding: "10px 14px",
+      fontWeight: act ? "700" : "400",
+      fontSize: "12px",
+      cursor: "pointer",
+      flex: "1"
+    }}, [t.l]);
+    (function(key) { tbtn.addEventListener("click", function() { STATE.tab = key; STATE.search = ""; renderApp(); }); })(t.k);
+    tabBar.appendChild(tbtn);
+  }
+  app.appendChild(tabBar);
+
+  // Content
+  var content = el("div", { style: { padding: "14px 16px", maxWidth: "700px", margin: "0 auto" } });
+
+  if (STATE.tab === "treinos") buildTreinosView(content);
+  else if (STATE.tab === "registros") buildRegistrosView(content);
+  else if (STATE.tab === "clientes") buildClientesView(content);
+  else if (STATE.tab === "perfil") buildPerfilView(content);
+
+  app.appendChild(content);
+}
+
+renderApp();
+</script>
+</body>
+</html>
