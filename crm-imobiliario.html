@@ -417,6 +417,7 @@ function openContact(id){
      (w?'<a href="https://wa.me/'+w+'" target="_blank"><span class="ic">💬</span>WhatsApp</a>':'<button onclick="toast(\'Sem telefone\')"><span class="ic">💬</span>WhatsApp</button>')+
      (c.email?'<a href="mailto:'+esc(c.email)+'"><span class="ic">✉️</span>Email</a>':'<button onclick="toast(\'Sem email\')"><span class="ic">✉️</span>Email</button>')+
      '<button onclick="openForm(\''+c.id+'\')"><span class="ic">✏️</span>Editar</button></div>';
+  h+='<button class="btn gold full" style="margin-bottom:12px" onclick="openMsgs(\''+c.id+'\')">💬 Mensagens prontas</button>';
   h+='<div class="card">'+
      (c.tel?'<div class="sub">📱 '+esc(c.tel)+'</div>':'')+
      (c.email?'<div class="sub">✉️ '+esc(c.email)+'</div>':'')+
@@ -799,7 +800,7 @@ function sync(manual){
 var olx=null, olxLoading=false, olxF='Todos';
 function loadOlx(){
   olxLoading=true;
-  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(title,price,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
+  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,title,price,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
     olxLoading=false;
     if(st===200 && rows){
       olx=[];
@@ -809,6 +810,9 @@ function loadOlx(){
     if(cur==='olx') render();
   });
 }
+var olxHideNo=false, lastDis=null;
+function diasDesde(iso){ if(!iso) return null; var t=Date.parse(iso); if(isNaN(t)) return null; return Math.max(0, Math.floor((Date.now()-t)/86400000)); }
+function findLead(leadId){ for(var i=0;i<olx.length;i++){ if(olx[i].lead===leadId) return i; } return -1; }
 function vOlx(){
   var h='<h2>Leads OLX</h2>';
   if(!sess) return h+'<div class="empty">Entre na conta (separador Mais) para ver os leads.</div>';
@@ -817,34 +821,143 @@ function vOlx(){
   for(i=0;i<olx.length;i++){ var n=olx[i].negocio||'outro'; if(!neg[n]){ neg[n]=1; ks.push(n); } }
   h+='<div class="chips">';
   for(i=0;i<ks.length;i++) h+='<button class="chip '+(olxF===ks[i]?'on':'')+'" onclick="olxF=\''+esc(ks[i])+'\';render()">'+esc(ks[i])+'</button>';
-  h+='<button class="chip" onclick="olx=null;render()">↻ Atualizar</button></div>';
+  h+='<button class="chip '+(olxHideNo?'on':'')+'" onclick="olxHideNo=!olxHideNo;render()">Esconder “sem agências”</button>';
+  h+='<button class="chip" onclick="olx=null;lastDis=null;render()">↻ Atualizar</button></div>';
+  if(lastDis) h+='<button class="btn ghost sm full" style="margin-bottom:10px" onclick="undoLead()">↩︎ Anular: “'+esc(String(lastDis.L.title||'anúncio').substring(0,40))+'”</button>';
   var n2=0;
   for(i=0;i<olx.length;i++){
-    var L=olx[i]; if(olxF!=='Todos' && (L.negocio||'outro')!==olxF) continue; n2++;
+    var L=olx[i];
+    if(olxF!=='Todos' && (L.negocio||'outro')!==olxF) continue;
+    if(olxHideNo && L.sem_imobiliarias) continue;
+    n2++;
     var loc=[L.tipologia,L.freguesia,L.concelho].join(' · ').replace(/^( · )+|( · )+$/g,'').replace(/( · ){2,}/g,' · ');
-    var okUrl=L.url && /^https?:\/\//.test(L.url);
+    var okUrl=L.url && /^https?:\/\//.test(L.url), dd=diasDesde(L.posted_at), q="'"+esc(L.lead)+"'";
     h+='<div class="card"><div class="name" style="white-space:normal">'+esc(L.title||'Anúncio sem título')+'</div>'+
        '<div class="sub">'+(L.price?esc(Number(L.price).toLocaleString('pt-PT'))+' € · ':'')+esc(loc)+'</div>'+
-       '<div><span class="tag gold">Score '+esc(L.score||0)+'</span>'+(L.negocio?'<span class="tag">'+esc(L.negocio)+'</span>':'')+(L.is_active===false?'<span class="tag red">Inativo</span>':'')+'</div>'+
-       '<div class="btns" style="margin-top:10px">'+(okUrl?'<a class="btn ghost sm" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="'+esc(L.url)+'">Ver anúncio</a>':'')+
-       '<button class="btn gold sm" onclick="convLead(\''+esc(L.lead)+'\')">Converter em contacto</button></div></div>';
+       '<div><span class="tag gold">Score '+esc(L.score||0)+'</span>'+(L.negocio?'<span class="tag">'+esc(L.negocio)+'</span>':'')+
+       (dd!==null?'<span class="tag">há '+dd+(dd===1?' dia':' dias')+'</span>':'')+
+       (L.republicado?'<span class="tag blue">Republicado</span>':'')+
+       (L.sem_imobiliarias?'<span class="tag red">Dispensa agências</span>':'')+
+       (L.is_active===false?'<span class="tag red">Inativo</span>':'')+'</div>'+
+       '<div class="btns" style="margin-top:10px"><button class="btn gold sm" onclick="contactLead('+q+')">💬 Contactar</button>'+
+       (okUrl?'<a class="btn ghost sm" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="'+esc(L.url)+'">Ver anúncio</a>':'')+'</div>'+
+       '<div class="btns" style="margin-top:8px"><button class="btn ghost sm" onclick="dismissLead('+q+',\'nao_interessa\')">✕ Não interessa</button>'+
+       '<button class="btn ghost sm" onclick="dismissLead('+q+',\'agencia\')">🏢 É agência</button>'+
+       '<button class="btn ghost sm" onclick="convLead('+q+')">＋ Contacto</button></div></div>';
   }
-  if(!n2) h+='<div class="empty">Sem leads novos.</div>';
+  if(!n2) h+='<div class="empty">Sem leads novos.</div>'; else h+='<div class="note" style="text-align:center;margin-top:6px">'+n2+' lead(s)</div>';
   return h;
 }
-function convLead(leadId){
-  var L=null, i; for(i=0;i<olx.length;i++){ if(olx[i].lead===leadId) L=olx[i]; }
-  if(!L) return;
+function dismissLead(leadId, motivo){
+  var i=findLead(leadId); if(i<0) return;
+  var L=olx[i]; olx.splice(i,1); lastDis={L:L, idx:i, motivo:motivo}; render();
+  toast(motivo==='agencia'?'Marcado como agência':'Lead descartado');
+  rest('PATCH','/rest/v1/leads?id=eq.'+encodeURIComponent(leadId),JSON.stringify({stage:'perdido',lost_reason:motivo}),'return=minimal',function(st){
+    if(st<200||st>=300){ if(olx && findLead(leadId)<0){ olx.splice(Math.min(i,olx.length),0,L); } if(lastDis && lastDis.L===L) lastDis=null; if(cur==='olx') render(); toast('Não foi possível guardar — tente de novo'); return; }
+    if(motivo==='agencia' && L.id) rest('PATCH','/rest/v1/listings?id=eq.'+encodeURIComponent(L.id),JSON.stringify({is_agency_suspect:true}),'return=minimal',function(){});
+  });
+}
+function undoLead(){
+  if(!lastDis) return; var d=lastDis; lastDis=null;
+  olx.splice(Math.min(d.idx,olx.length),0,d.L); render();
+  rest('PATCH','/rest/v1/leads?id=eq.'+encodeURIComponent(d.L.lead),JSON.stringify({stage:'novo',lost_reason:null}),'return=minimal',function(st){
+    if(st<200||st>=300){ toast('Não foi possível anular'); return; }
+    if(d.motivo==='agencia' && d.L.id) rest('PATCH','/rest/v1/listings?id=eq.'+encodeURIComponent(d.L.id),JSON.stringify({is_agency_suspect:false}),'return=minimal',function(){});
+    toast('Lead reposto');
+  });
+}
+function leadMsg(L){
+  var onde=L.freguesia||L.concelho||'', arr=/arrend|alug/i.test(L.negocio||'');
+  return 'Olá, '+saud()+'! Sou o Josimar Souza, consultor imobiliário da Imotrust'+(onde?', e trabalho a zona de '+onde:'')+'. '+
+    'Vi o seu anúncio'+(L.title?' (“'+L.title+'”)':'')+' e gostava de saber se ainda está disponível. '+
+    (arr?'Posso ajudar a encontrar um bom inquilino, com triagem e contrato tratados por mim. ':'Faço uma avaliação gratuita e sem compromisso, para confirmar se o preço está alinhado com o que se está a vender na zona. ')+
+    'Posso ligar-lhe para falarmos 5 minutos? O meu contacto é o 937 100 471. Obrigado!';
+}
+function contactLead(leadId){
+  var i=findLead(leadId); if(i<0) return; var L=olx[i], q="'"+esc(leadId)+"'";
+  var h='<div class="sheet-h"><h2>Contactar</h2><button class="x" onclick="closeModal()">×</button></div>';
+  h+='<div class="card"><b>'+esc(L.title||'Anúncio')+'</b><div class="sub" style="white-space:normal">'+(L.price?esc(Number(L.price).toLocaleString('pt-PT'))+' € · ':'')+esc(L.freguesia||L.concelho||'')+'</div></div>';
+  if(L.sem_imobiliarias) h+='<div class="card" style="border-color:#F3B9C4;color:var(--red);font-weight:600">⚠️ Este anúncio diz que dispensa imobiliárias. Pondere se vale a pena contactar.</div>';
+  h+='<label>Mensagem (pode editar)</label><textarea id="otxt" style="min-height:190px">'+esc(leadMsg(L))+'</textarea>';
+  h+='<button class="btn gold full" style="margin-top:10px" onclick="copyOpen('+q+')">📋 Copiar mensagem e abrir anúncio</button>';
+  h+='<div class="note" style="margin:8px 0 14px">No anúncio, toque em “Enviar mensagem” e cole o texto.</div>';
+  h+='<button class="btn full" onclick="convLead('+q+',true)">✓ Já enviei → guardar contacto e follow-up</button>';
+  openModal(h);
+}
+function copyEl(id){
+  var e=document.getElementById(id), ok=false; if(!e) return false;
+  try{ e.focus(); e.select(); e.setSelectionRange(0, e.value.length); ok=document.execCommand('copy'); }catch(x){}
+  try{ if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(e.value)['catch'](function(){}); ok=true; }catch(x){}
+  try{ e.blur(); }catch(x){}
+  return ok;
+}
+function copyOpen(leadId){
+  var i=findLead(leadId); if(i<0) return; var L=olx[i];
+  var ok=copyEl('otxt'); toast(ok?'Mensagem copiada':'Copie o texto manualmente');
+  if(L.url && /^https?:\/\//.test(L.url)) window.open(L.url,'_blank');
+}
+function convLead(leadId, contactado){
+  var i=findLead(leadId); if(i<0) return; var L=olx[i], k;
   var zona='Outra', where=((L.freguesia||'')+' '+(L.concelho||'')).toLowerCase();
-  for(i=0;i<ZONAS.length;i++){ if(ZONAS[i]!=='Outra' && where.indexOf(ZONAS[i].toLowerCase())>-1){ zona=ZONAS[i]; break; } }
+  for(k=0;k<ZONAS.length;k++){ if(ZONAS[k]!=='Outra' && where.indexOf(ZONAS[k].toLowerCase())>-1){ zona=ZONAS[k]; break; } }
   var arr=/arrend|alug/i.test(L.negocio||'');
+  var nome=('Proprietário '+(L.tipologia||'')+' '+(L.freguesia||'')).replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
   pendingLead=leadId;
-  openForm(null, {nome:'', tel:'', email:'', tipo:arr?'Senhorio (arrendar)':'Proprietário (venda)', origem:'OLX', zona:zona, estado:'Novo',
-    interesse:L.title||'', orcamento:L.price||'', notas:(L.url||'')+(L.freguesia?'\n'+L.freguesia:'')});
+  openForm(null, {nome:nome, tel:'', email:'', tipo:arr?'Senhorio (arrendar)':'Proprietário (venda)', origem:'OLX', zona:zona, estado:contactado?'Contactado':'Novo',
+    interesse:L.title||'', orcamento:L.price||'', notas:(L.url||'')+(contactado?'\nMensagem enviada pela OLX.':'')});
 }
 function markLead(leadId){
   rest('PATCH','/rest/v1/leads?id=eq.'+encodeURIComponent(leadId),JSON.stringify({stage:'contactado'}),'return=minimal',function(){});
   if(olx){ for(var i=0;i<olx.length;i++){ if(olx[i].lead===leadId){ olx.splice(i,1); break; } } }
+}
+
+
+/* ================= MENSAGENS PRONTAS ================= */
+function saud(){ var h=new Date().getHours(); return h<12?'bom dia':(h<20?'boa tarde':'boa noite'); }
+function ola(c){
+  var n=String(c.nome||'').replace(/^\s+/,'').split(/\s+/)[0]||'';
+  if(/^(propriet|client|senhori|contact|lead)/i.test(n)) n='';
+  return 'Olá'+(n?' '+n:'')+', '+saud()+'!';
+}
+function vendedor(c){ return c.tipo==='Proprietário (venda)' || c.tipo==='Senhorio (arrendar)'; }
+function imv(c){ return c.interesse?' ('+c.interesse+')':''; }
+var EU='Josimar Souza, consultor imobiliário da Imotrust';
+var TPLS=[
+  {id:'p1', t:'1.º contacto', v:1, f:function(c){ return ola(c)+' Sou o '+EU+(c.zona&&c.zona!=='Outra'?', e trabalho a zona de '+c.zona:'')+'. Vi o seu anúncio'+imv(c)+' e gostava de saber se ainda está disponível. Faço uma avaliação gratuita e sem compromisso, para confirmar se o preço está alinhado com o que se está a vender na zona. Posso ligar-lhe para falarmos 5 minutos?'; }},
+  {id:'p2', t:'Pedir reunião', v:1, f:function(c){ return ola(c)+' Fala o Josimar Souza, da Imotrust. Gostava de marcar uma reunião de 20 minutos para lhe apresentar o estudo de mercado do seu imóvel'+imv(c)+' e o plano que proponho. Que dia e hora lhe dão mais jeito esta semana?'; }},
+  {id:'c1', t:'Enviar imóveis', v:0, f:function(c){ return ola(c)+' Selecionei alguns imóveis que encaixam no que procura'+imv(c)+'. Envio os links a seguir. Diga-me quais gostava de visitar e eu trato da marcação.'; }},
+  {id:'x1', t:'Confirmar marcação', v:2, f:function(c){ var a=nextAp(c); return ola(c)+' Confirmo '+(a?'a nossa marcação ('+a.tipo.toLowerCase()+') para '+fmt(a.d).replace(' · ',' às ').replace(/^(Hoje|Amanhã) /,function(m){return m.toLowerCase()+'às ';}):'a nossa marcação para [dia e hora]')+'. Se precisar de alterar, diga-me. Até lá!'; }},
+  {id:'c2', t:'Depois da visita', v:0, f:function(c){ return ola(c)+' O que achou do imóvel que visitámos? Gostava de saber o que mais gostou e o que não encaixa, para afinar a procura. Se quiser, envio-lhe mais opções.'; }},
+  {id:'p3', t:'Depois da reunião', v:1, f:function(c){ return ola(c)+' Obrigado pelo tempo na nossa reunião. Fico a aguardar a sua decisão sobre a proposta que lhe apresentei. Se tiver alguma dúvida, estou à disposição.'; }},
+  {id:'x2', t:'Retomar contacto', v:2, f:function(c){ return ola(c)+' Fala o Josimar Souza, da Imotrust. Já passou algum tempo desde a nossa última conversa e queria saber como está '+(vendedor(c)?'a situação do imóvel':'a procura de casa')+'. Posso ajudar em alguma coisa?'; }}
+];
+function tplsFor(c){
+  var want=vendedor(c)?1:0, a=[], b=[], i;
+  for(i=0;i<TPLS.length;i++){ if(TPLS[i].v===want || TPLS[i].v===2) a.push(TPLS[i]); else b.push(TPLS[i]); }
+  return a.concat(b);
+}
+function openMsgs(cid, tid){
+  var c=byId(cid); if(!c) return; var list=tplsFor(c), i, cur2=list[0];
+  for(i=0;i<list.length;i++){ if(list[i].id===tid) cur2=list[i]; }
+  var q="'"+cid+"'";
+  var h='<div class="sheet-h"><h2>Mensagens prontas</h2><button class="x" onclick="openContact('+q+')">×</button></div>';
+  h+='<div class="note" style="margin-bottom:8px">Para: <b>'+esc(c.nome)+'</b>'+(c.tel?' · '+esc(c.tel):' · sem telemóvel (escolhe o contacto no WhatsApp)')+'</div>';
+  h+='<div class="chips" style="flex-wrap:wrap;overflow:visible">';
+  for(i=0;i<list.length;i++) h+='<button class="chip '+(list[i].id===cur2.id?'on':'')+'" onclick="openMsgs('+q+',\''+list[i].id+'\')">'+esc(list[i].t)+'</button>';
+  h+='</div><textarea id="mtxt" style="min-height:200px">'+esc(cur2.f(c))+'</textarea>';
+  h+='<button class="btn gold full" style="margin-top:10px" onclick="sendWa('+q+',\''+cur2.id+'\')">💬 Enviar no WhatsApp</button>';
+  h+='<button class="btn ghost full" style="margin-top:8px" onclick="toast(copyEl(\'mtxt\')?\'Mensagem copiada\':\'Copie o texto manualmente\')">📋 Copiar texto</button>';
+  h+='<div class="note" style="margin-top:10px">Pode editar o texto antes de enviar. O envio fica registado no histórico.</div>';
+  openModal(h);
+}
+function sendWa(cid, tid){
+  var c=byId(cid), e=document.getElementById('mtxt'); if(!c||!e) return;
+  var txt=e.value.replace(/^\s+|\s+$/g,''); if(!txt){ toast('Mensagem vazia'); return; }
+  var nome='', i; for(i=0;i<TPLS.length;i++){ if(TPLS[i].id===tid) nome=TPLS[i].t; }
+  var w=telNorm(c.tel);
+  window.open('https://wa.me/'+(w||'')+'?text='+encodeURIComponent(txt),'_blank');
+  c.hist=c.hist||[]; c.hist.push({d:nowLocal(), canal:'WhatsApp', txt:'Mensagem enviada: '+nome});
+  save(c); openContact(cid);
 }
 
 /* ================= NOTA DE ÁUDIO (IA) ================= */
