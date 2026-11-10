@@ -464,7 +464,7 @@ function openContact(id){
   h+='<button class="btn gold full" onclick="newAp(\''+c.id+'\')">+ Novo agendamento</button>';
   // histórico
   h+='<h3>Histórico de interações</h3>';
-  h+='<button class="btn full" style="margin-bottom:10px" onclick="openAudio(\''+c.id+'\')">🎙️ Nota de áudio (IA resume e agenda)</button>';
+  h+='<div class="btns" style="margin-bottom:10px"><button class="btn" onclick="openAudio(\''+c.id+'\')">🎙️ Nota de áudio</button><button class="btn" onclick="openWaChat(\''+c.id+'\')">💬 Conversa WhatsApp</button></div>';
   h+='<div class="g2"><div><select id="hcanal">'+opts(['Chamada','WhatsApp','Email','Visita','Reunião','Presencial','Nota'],'Chamada')+'</select></div></div>';
   h+='<textarea id="htxt" placeholder="O que foi falado / combinado…" style="margin-top:8px"></textarea>';
   h+='<button class="btn full" style="margin-top:8px" onclick="addHist(\''+c.id+'\')">Registar interação</button>';
@@ -1432,6 +1432,52 @@ function sendWa(cid, tid){
   save(c); openContact(cid);
 }
 
+
+/* ================= CONVERSA DO WHATSAPP (IA) ================= */
+function openWaChat(cid){
+  var c=cid?byId(cid):null;
+  var h='<div class="sheet-h"><h2>Conversa do WhatsApp</h2><button class="x" onclick="'+(cid?'openContact('+qid(cid)+')':'closeModal()')+'">×</button></div>';
+  if(!sess){ openModal(h+'<div class="card">Para a IA ler conversas, entre primeiro na sua conta.</div><button class="btn gold full" onclick="closeModal();go(\'mais\')">Entrar na conta</button>'); return; }
+  h+='<div class="note" style="margin-bottom:10px">'+(c?'Contacto: <b>'+esc(c.nome)+'</b>. ':'')+'A IA lê a conversa, separa o que interessa ao imóvel e ao negócio, e propõe os próximos passos com data para a agenda. Revê tudo antes de guardar.</div>';
+  h+='<div class="card"><b>Como exportar no iPhone</b><ol style="margin:8px 0 0;padding-left:20px;line-height:1.6">'+
+     '<li>Abra a conversa no WhatsApp e toque no nome do contacto (no topo).</li>'+
+     '<li>Desça até ao fim e toque em <b>Exportar conversa</b>.</li>'+
+     '<li>Escolha <b>Sem multimédia</b>.</li>'+
+     '<li>Toque em <b>Guardar em Ficheiros</b>.</li>'+
+     '<li>Volte aqui e carregue o ficheiro (.zip ou .txt).</li></ol></div>';
+  h+='<input type="file" id="wfile" accept=".zip,.txt,text/plain,application/zip,application/x-zip-compressed" style="display:none" onchange="pickChat(this,'+qid(cid)+')">';
+  h+='<button class="btn gold full" onclick="document.getElementById(\'wfile\').click()">📂 Carregar conversa exportada</button>';
+  h+='<div class="note" style="margin-top:10px">A conversa é enviada à IA (Groq) só para ser analisada. Fica guardado no CRM apenas o resumo que aprovar.</div>';
+  openModal(h);
+}
+function pickChat(inp, cid){
+  var f=inp.files[0]; if(!f) return;
+  if(f.size>40*1024*1024){ toast('Ficheiro grande demais — exporte “Sem multimédia”'); return; }
+  openModal('<div class="spin">💬 A ler a conversa…<div class="note" style="margin-top:8px;font-weight:400">Pode demorar até meio minuto.</div></div>');
+  var fd=new FormData(), list=[], i;
+  fd.append('file', f, f.name||'conversa.zip');
+  for(i=0;i<db.contacts.length;i++) list.push({id:db.contacts[i].id, nome:db.contacts[i].nome, tel:db.contacts[i].tel||''});
+  fd.append('contacts', JSON.stringify(list));
+  fd.append('now', nowLocal());
+  fd.append('weekday', DIAS_L[new Date().getDay()]);
+  if(cid) fd.append('contact_id', cid);
+  withToken(function(t){
+    if(!t){ openWaChat(cid); toast('Sem ligação / sessão'); return; }
+    xhr('POST', SB_URL+'/functions/v1/whatsapp-chat', {apikey:SB_KEY, Authorization:'Bearer '+t}, fd, function(st,j){
+      if(st===200 && j && !j.error){ j.kind='wa'; reviewAudio(j, cid); return; }
+      var e=j&&j.error, m='Não foi possível analisar a conversa';
+      if(e==='sem_chave') m='A IA ainda não está ativada (falta a chave)';
+      else if(e==='grande') m='Ficheiro grande demais — exporte “Sem multimédia”';
+      else if(e==='zip'||e==='sem_txt') m='Não encontrei a conversa dentro do ficheiro';
+      else if(e==='vazio') m='O ficheiro parece vazio';
+      else if(e==='sem_acesso') m='Esta conta não tem acesso';
+      else if(e==='analise') m='A IA está ocupada — tente daqui a 1 minuto';
+      else if(st===0) m='Sem ligação à internet';
+      openWaChat(cid); toast(m);
+    });
+  });
+}
+
 /* ================= NOTA DE ÁUDIO (IA) ================= */
 var audRes=null, rec=null, recChunks=[];
 var DIAS_L=['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
@@ -1450,6 +1496,7 @@ function openAudio(cid){
     h+='<button class="btn full" id="recbtn" style="margin-top:8px" onclick="recToggle('+qid(cid)+')">🎙️ Gravar agora</button>';
   h+='<label>Ou escreva / dite o texto</label><textarea id="atext" placeholder="Ex.: Falei com a proprietária, quer 285 mil pelo T2, reunião sexta às 18h…"></textarea>';
   h+='<button class="btn ghost full" style="margin-top:8px" onclick="sendText('+qid(cid)+')">Analisar texto</button>';
+  h+='<button class="btn ghost full" style="margin-top:14px" onclick="openWaChat('+qid(cid)+')">💬 Analisar uma conversa inteira do WhatsApp</button>';
   h+='<div class="note" style="margin-top:12px">Áudio do WhatsApp: toque no áudio → Partilhar → Guardar em Ficheiros, e carregue-o aqui. Máx. 25 MB.</div>';
   openModal(h);
 }
@@ -1506,7 +1553,8 @@ function sendAudio(blob, name, text, cid){
   });
 }
 function reviewAudio(r, cid){
-  audRes=r; var i, h='<div class="sheet-h"><h2>Rever nota</h2><button class="x" onclick="closeModal()">×</button></div>';
+  audRes=r; var wa=r.kind==='wa', i, h='<div class="sheet-h"><h2>'+(wa?'Rever conversa':'Rever nota')+'</h2><button class="x" onclick="closeModal()">×</button></div>';
+  if(wa && r.cortado) h+='<div class="note" style="margin-bottom:6px">Conversa longa ('+esc(r.linhas)+' linhas): a IA leu a parte mais recente.</div>';
   var sel=cid||r.contacto_id||(r.contacto_novo?'__new':'');
   var cs=db.contacts.slice().sort(function(a,b){ return a.nome.localeCompare(b.nome); });
   h+='<label>Contacto</label><select id="acont" onchange="document.getElementById(\'anew\').style.display=this.value===\'__new\'?\'block\':\'none\'">'+
@@ -1518,18 +1566,24 @@ function reviewAudio(r, cid){
   var txt=r.resumo||''; for(i=0;i<(r.pontos||[]).length;i++) txt+=(txt?'\n':'')+'• '+r.pontos[i];
   if(!txt) txt=r.transcricao||'';
   h+='<label>Nota (o mais importante)</label><textarea id="anotaTxt" style="min-height:150px">'+esc(txt)+'</textarea>';
-  h+='<h3>Compromissos para a agenda</h3>';
-  var cp=r.compromissos||[];
-  if(!cp.length) h+='<div class="note">Não foi detetado nenhum compromisso com data no áudio.</div>';
+  h+='<h3>'+(wa?'Próximos passos para a agenda':'Compromissos para a agenda')+'</h3>';
+  var cp=r.compromissos||[], nSug=0;
+  if(!cp.length) h+='<div class="note">Não foi detetado nenhum compromisso com data'+(wa?' na conversa.':' no áudio.')+'</div>';
   for(i=0;i<cp.length;i++){
-    h+='<div class="cmp"><div class="hd"><input type="checkbox" id="ck_'+i+'" checked> <span>Adicionar à agenda</span></div>'+
+    var sug=cp[i].origem==='sugerido', marc=!sug || (nSug++===0);
+    h+='<div class="cmp"><div class="hd"><input type="checkbox" id="ck_'+i+'"'+(marc?' checked':'')+'> <span>Adicionar à agenda</span>'+
+       (cp[i].origem?'<span class="tag '+(sug?'blue':'gold')+'" style="margin:0 0 0 auto">'+(sug?'Sugerido pela IA':'Combinado')+'</span>':'')+'</div>'+
        '<select id="ct_'+i+'" style="margin-top:8px">'+opts(ACOES,cp[i].tipo)+'</select>'+
        '<div class="g2" style="margin-top:8px"><div><input type="date" id="cd_'+i+'" value="'+esc(cp[i].data)+'"></div><div><input type="time" id="ch_'+i+'" value="'+esc(cp[i].hora)+'"></div></div>'+
        '<input id="cn_'+i+'" style="margin-top:8px" value="'+esc(cp[i].nota)+'" placeholder="Nota"></div>';
   }
   if(r.estado_sugerido) h+='<div class="cmp"><div class="hd"><input type="checkbox" id="cest" checked> <span>Mudar estado para “'+esc(r.estado_sugerido)+'”</span></div></div>';
-  if(r.transcricao) h+='<details><summary>Ver transcrição completa</summary><div style="white-space:pre-wrap;margin-top:8px">'+esc(r.transcricao)+'</div></details>';
-  h+='<button class="btn gold full" style="margin-top:16px" onclick="saveAudio()">Guardar nota e agendamentos</button>';
+  var cAtual=sel&&sel!=='__new'?byId(sel):null;
+  if(r.interesse && (!cAtual || cAtual.interesse!==r.interesse)) h+='<div class="cmp"><div class="hd"><input type="checkbox" id="cint"'+(cAtual&&cAtual.interesse?'':' checked')+'> <span>Imóvel / interesse: “'+esc(r.interesse)+'”</span></div></div>';
+  if(r.valor && (!cAtual || String(cAtual.orcamento)!==String(r.valor))) h+='<div class="cmp"><div class="hd"><input type="checkbox" id="cval"'+(cAtual&&cAtual.orcamento?'':' checked')+'> <span>Valor: '+eur(r.valor)+'</span></div></div>';
+  if(r.tel && cAtual && !cAtual.tel) h+='<div class="cmp"><div class="hd"><input type="checkbox" id="ctel" checked> <span>Guardar telemóvel '+esc(r.tel)+'</span></div></div>';
+  if(r.transcricao) h+='<details><summary>'+(wa?'Ver conversa analisada':'Ver transcrição completa')+'</summary><div style="white-space:pre-wrap;margin-top:8px">'+esc(r.transcricao)+'</div></details>';
+  h+='<button class="btn gold full" style="margin-top:16px" onclick="saveAudio()">'+(wa?'Guardar resumo e agendamentos':'Guardar nota e agendamentos')+'</button>';
   openModal(h);
 }
 function saveAudio(){
@@ -1537,13 +1591,16 @@ function saveAudio(){
   if(!sel){ toast('Escolha o contacto'); return; }
   if(sel==='__new'){
     var nome=v('anome'); if(!nome){ toast('Escreva o nome do contacto'); return; }
-    c={id:uid(), criado:nowLocal(), hist:[{d:nowLocal(),canal:'Nota',txt:'Contacto criado a partir de nota de áudio'}], ag:[],
+    c={id:uid(), criado:nowLocal(), hist:[{d:nowLocal(),canal:'Nota',txt:'Contacto criado a partir de '+(r.kind==='wa'?'conversa de WhatsApp':'nota de áudio')}], ag:[],
        nome:nome, tel:v('atel'), email:'', tipo:'Proprietário (venda)', origem:'Outro', zona:'Outra', estado:'Novo', interesse:'', orcamento:'', notas:''};
     db.contacts.push(c);
   } else c=byId(sel);
   if(!c) return;
   c.hist=c.hist||[]; c.ag=c.ag||[];
-  var txt=v('anotaTxt'); if(txt) c.hist.push({d:nowLocal(), canal:'Áudio', txt:txt});
+  var txt=v('anotaTxt'); if(txt) c.hist.push({d:nowLocal(), canal:r.kind==='wa'?'Conversa WhatsApp':'Áudio', txt:txt});
+  var ci=document.getElementById('cint'); if(ci && ci.checked) c.interesse=r.interesse;
+  var cv=document.getElementById('cval'); if(cv && cv.checked) c.orcamento=String(r.valor);
+  var ctl=document.getElementById('ctel'); if(ctl && ctl.checked && !c.tel) c.tel=r.tel;
   for(i=0;i<(r.compromissos||[]).length;i++){
     if(!document.getElementById('ck_'+i).checked) continue;
     var d=v('cd_'+i), hh=v('ch_'+i); if(!d||!hh) continue;
