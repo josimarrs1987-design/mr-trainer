@@ -1189,7 +1189,9 @@ function openImv(id, preset){
   m=m||preset||{titulo:'',negocio:'Venda',tipo:'Apartamento',quartos:'2',zona:'Alfragide',morada:'',preco:'',area:'',origem:'Partilha (outra agência)',agencia:'',link:'',estado:'Disponível',dono:'',extras:[],notas:''};
   var back=id?'openImvFicha(\''+id+'\')':(m.dono?'openContact(\''+m.dono+'\')':'closeModal()');
   var h='<div class="sheet-h"><h2>'+(novo?'Novo imóvel':'Editar imóvel')+'</h2><button class="x" onclick="'+back+'">×</button></div>';
-  h+='<label>Link do anúncio (Idealista, OLX, Imovirtual…)</label><input id="ilink" type="url" autocapitalize="off" value="'+esc(m.link)+'" placeholder="https://…">';
+  h+='<label>Link do anúncio (Idealista, OLX, Imovirtual…)</label><input id="ilink" type="url" autocapitalize="off" value="'+esc(m.link)+'" placeholder="Cole o link e a IA preenche o resto" oninput="linkTyped()">';
+  h+='<button type="button" id="ifill" class="btn ghost sm full" style="margin-top:8px" onclick="fillFromLink()">✨ Preencher automaticamente pelo link</button>';
+  h+='<div id="iblk" style="display:none" class="card"><div class="note" id="iblkmsg" style="margin-bottom:6px"></div><textarea id="iadtxt" style="min-height:110px" placeholder="Cole aqui o texto do anúncio (título, preço, características, descrição)…"></textarea><button type="button" class="btn sm full" style="margin-top:8px" onclick="fillFromLink(1)">✨ Preencher com este texto</button></div>';
   h+='<label>Título (opcional)</label><input id="itit" value="'+esc(m.titulo)+'" placeholder="Ex.: T3 com terraço junto ao parque">';
   h+='<div class="g2"><div><label>Negócio</label><select id="ineg">'+opts(IMV_NEG,m.negocio)+'</select></div><div><label>Estado</label><select id="iest">'+opts(IMV_EST,m.estado)+'</select></div></div>';
   h+='<div class="g2"><div><label>Tipo</label><select id="itipo">'+opts(IMV_TIPO,m.tipo)+'</select></div><div><label>Quartos (T)</label><select id="iqt">'+opts(['','0','1','2','3','4','5','6'],String(m.quartos==null?'':m.quartos))+'</select></div></div>';
@@ -1204,7 +1206,66 @@ function openImv(id, preset){
   for(i=0;i<vs.length;i++) h+='<option value="'+esc(vs[i].id)+'"'+(vs[i].id===m.dono?' selected':'')+'>'+esc(vs[i].nome)+'</option>';
   h+='</select><label>Notas</label><textarea id="inot">'+esc(m.notas)+'</textarea>';
   h+='<button class="btn gold full" style="margin-top:16px" onclick="saveImv('+(novo?'null':'\''+id+'\'')+')">Guardar imóvel</button>';
-  openModal(h);
+  openModal(h); imvSnap(); lastFillUrl=m.link||'';
+}
+/* --- preencher pelo link (IA) --- */
+var IMV_IDS=['itit','ineg','itipo','iqt','ipre','iarea','izona','imor','iag','inot'], imvInit={}, lastFillUrl='', linkT=null, filling=false;
+function imvSnap(){ imvInit={}; for(var i=0;i<IMV_IDS.length;i++){ var e=document.getElementById(IMV_IDS[i]); if(e) imvInit[IMV_IDS[i]]=e.value; } }
+function linkTyped(){
+  clearTimeout(linkT);
+  linkT=setTimeout(function(){ var u=v('ilink'); if(/^https?:\/\/\S+\.\S+/.test(u) && u!==lastFillUrl) fillFromLink(); }, 900);
+}
+function setIf(id, val){
+  if(val===null || val===undefined || val==='') return false;
+  var e=document.getElementById(id); if(!e) return false;
+  if(e.value!==(imvInit[id]||'') && e.value!=='') return false; // o utilizador já mexeu: não sobrepor
+  e.value=String(val); imvInit[id]=e.value;
+  e.style.boxShadow='0 0 0 2px var(--gold)'; setTimeout(function(){ e.style.boxShadow=''; }, 2500);
+  return true;
+}
+function fillFromLink(useText){
+  if(filling) return;
+  var url=v('ilink'), txt=useText?v('iadtxt'):'';
+  if(useText && txt.length<40){ toast('Cole o texto do anúncio'); return; }
+  if(!useText && !/^https?:\/\//.test(url)){ toast('Cole primeiro o link do anúncio'); return; }
+  if(!sess){ toast('Entre na conta para usar a IA'); return; }
+  filling=true; lastFillUrl=url;
+  var b=document.getElementById('ifill'); if(b) b.innerHTML='⏳ A ler o anúncio…';
+  withToken(function(t){
+    if(!t){ filling=false; if(b) b.innerHTML='✨ Preencher automaticamente pelo link'; toast('Sem ligação / sessão'); return; }
+    xhr('POST', SB_URL+'/functions/v1/imovel-link', {apikey:SB_KEY, Authorization:'Bearer '+t, 'Content-Type':'application/json'}, JSON.stringify(useText?{url:url,text:txt}:{url:url}), function(st,j){
+      filling=false; if(b) b.innerHTML='✨ Preencher automaticamente pelo link';
+      if(!document.getElementById('ilink')) return;
+      var blk=document.getElementById('iblk');
+      if(st===200 && j && j.error==='bloqueado'){
+        if(blk){ blk.style.display='block'; document.getElementById('iblkmsg').innerHTML='O site '+esc(j.host||'')+' não deixa ler o anúncio automaticamente. Abra o anúncio, selecione e copie o texto, e cole aqui:'; }
+        toast('Este site bloqueia a leitura — cole o texto'); return;
+      }
+      if(st!==200 || !j || j.error){
+        var e=j&&j.error; toast(e==='sem_chave'?'A IA ainda não está ativada':(e==='url'?'Link inválido':(st===0?'Sem ligação à internet':'Não foi possível ler o anúncio'))); return;
+      }
+      var f=[], cur=v('iorig');
+      if(setIf('itit', j.titulo)) f.push('título');
+      if(setIf('ineg', j.negocio)) f.push(j.negocio.toLowerCase());
+      if(setIf('itipo', j.tipo)) f.push(j.tipo.toLowerCase());
+      if(j.quartos!==null && setIf('iqt', String(j.quartos))) f.push('T'+j.quartos);
+      if(setIf('ipre', j.preco)) f.push('preço');
+      if(setIf('iarea', j.area)) f.push(j.area+' m²');
+      if(j.zona && j.zona!=='Outra' && setIf('izona', j.zona)) f.push(j.zona);
+      if(setIf('imor', j.morada)) f.push('morada');
+      if(j.agencia && cur!=='Minha angariação' && setIf('iag', j.agencia)) f.push('agência');
+      var xs=document.querySelectorAll('[data-x]'), i, nx=0;
+      for(i=0;i<xs.length;i++){ if((j.extras||[]).indexOf(xs[i].getAttribute('data-x'))>-1 && xs[i].className.indexOf(' on')<0){ xs[i].className='chip on'; nx++; } }
+      if(nx) f.push(nx+' característica(s)');
+      var no=document.getElementById('inot');
+      if(no && j.resumo && no.value.indexOf(j.resumo)<0){
+        var add=j.resumo+(j.agencia && cur==='Minha angariação'?'\nAnunciado por: '+j.agencia:'');
+        no.value=no.value?no.value+'\n\n'+add:add; imvInit.inot=no.value; f.push('descrição');
+      }
+      if(blk) blk.style.display='none';
+      toast(f.length?'Preenchido: '+f.slice(0,5).join(', ')+(f.length>5?'…':''):'Nada novo para preencher');
+    });
+  });
 }
 function saveImv(id){
   var m=id?imvById(id):{id:'i'+uid(), criado:nowLocal()};
