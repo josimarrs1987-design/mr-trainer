@@ -441,7 +441,7 @@ function openContact(id){
   h+='<div>'+tagTipo(c.tipo)+tagEstado(c.estado)+(c.origem?'<span class="tag">'+esc(c.origem)+'</span>':'')+(c.zona?'<span class="tag">'+esc(c.zona)+'</span>':'')+'</div>';
   h+='<div class="qa">'+
      (c.tel?'<a href="tel:'+esc(c.tel.replace(/\s/g,''))+'"><span class="ic">📞</span>Ligar</a>':'<button onclick="toast(\'Sem telefone\')"><span class="ic">📞</span>Ligar</button>')+
-     (w?'<a href="https://wa.me/'+w+'" target="_blank"><span class="ic">💬</span>WhatsApp</a>':'<button onclick="toast(\'Sem telefone\')"><span class="ic">💬</span>WhatsApp</button>')+
+     '<button onclick="openWaMenu(\''+c.id+'\')"><span class="ic">💬</span>WhatsApp</button>'+
      (c.email?'<a href="mailto:'+esc(c.email)+'"><span class="ic">✉️</span>Email</a>':'<button onclick="toast(\'Sem email\')"><span class="ic">✉️</span>Email</button>')+
      '<button onclick="openForm(\''+c.id+'\')"><span class="ic">✏️</span>Editar</button></div>';
   h+='<button class="btn gold full" style="margin-bottom:12px" onclick="openMsgs(\''+c.id+'\')">💬 Mensagens prontas</button>';
@@ -1447,15 +1447,34 @@ function openWaChat(cid){
      '<li>Volte aqui e carregue o ficheiro (.zip ou .txt).</li></ol></div>';
   h+='<input type="file" id="wfile" accept=".zip,.txt,text/plain,application/zip,application/x-zip-compressed" style="display:none" onchange="pickChat(this,'+qid(cid)+')">';
   h+='<button class="btn gold full" onclick="document.getElementById(\'wfile\').click()">📂 Carregar conversa exportada</button>';
+  h+='<label style="margin-top:16px">Ou cole aqui o texto da conversa</label><textarea id="wtxt" style="min-height:120px" placeholder="Cole a conversa exportada ou as mensagens copiadas…"></textarea>';
+  h+='<button class="btn full" style="margin-top:8px" onclick="pasteChat('+qid(cid)+')">Analisar texto colado</button>';
   h+='<div class="note" style="margin-top:10px">A conversa é enviada à IA (Groq) só para ser analisada. Fica guardado no CRM apenas o resumo que aprovar.</div>';
   openModal(h);
+}
+function openWaMenu(cid){
+  var c=byId(cid); if(!c) return; var q="'"+cid+"'", w=telNorm(c.tel);
+  var h='<div class="sheet-h"><h2>WhatsApp</h2><button class="x" onclick="openContact('+q+')">×</button></div>';
+  h+='<div class="note" style="margin-bottom:10px">'+esc(c.nome)+(c.tel?' · '+esc(c.tel):' · sem telemóvel')+'</div>';
+  h+='<button class="btn gold full" onclick="openWaChat('+q+')">🤖 Analisar conversa com IA<br><span style="font-weight:400;font-size:12.5px">carregar exportação ou colar texto</span></button>';
+  h+='<button class="btn full" style="margin-top:8px" onclick="openMsgs('+q+')">✍️ Mensagens prontas</button>';
+  h+='<button class="btn ghost full" style="margin-top:8px" onclick="'+(w?'window.open(\'https://wa.me/'+w+'\',\'_blank\')':'toast(\'Sem telemóvel\')')+'">Abrir conversa no WhatsApp</button>';
+  openModal(h);
+}
+function pasteChat(cid){
+  var t=v('wtxt'); if(t.length<30){ toast('Cole a conversa primeiro'); return; }
+  var b; try{ b=new Blob([t],{type:'text/plain'}); }catch(e){ toast('Não foi possível ler o texto'); return; }
+  sendChat(b,'conversa.txt',cid);
 }
 function pickChat(inp, cid){
   var f=inp.files[0]; if(!f) return;
   if(f.size>40*1024*1024){ toast('Ficheiro grande demais — exporte “Sem multimédia”'); return; }
+  sendChat(f, f.name||'conversa.zip', cid);
+}
+function sendChat(f, fname, cid){
   openModal('<div class="spin">💬 A ler a conversa…<div class="note" style="margin-top:8px;font-weight:400">Pode demorar até meio minuto.</div></div>');
   var fd=new FormData(), list=[], i;
-  fd.append('file', f, f.name||'conversa.zip');
+  fd.append('file', f, fname);
   for(i=0;i<db.contacts.length;i++) list.push({id:db.contacts[i].id, nome:db.contacts[i].nome, tel:db.contacts[i].tel||''});
   fd.append('contacts', JSON.stringify(list));
   fd.append('now', nowLocal());
