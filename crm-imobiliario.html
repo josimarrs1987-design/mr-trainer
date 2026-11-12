@@ -263,6 +263,7 @@ function render(){
   else if(cur==='imoveis') h=vImoveis();
   else if(cur==='num') h=vNum();
   else if(cur==='mercado') h=vMercado();
+  else if(cur==='radar') h=vRadar();
   else h=vMais();
   document.getElementById('view').innerHTML=h;
 }
@@ -298,7 +299,7 @@ function vHoje(){
   function srt(arr){ arr.sort(function(x,y){ return nextAp(x).d<nextAp(y).d?-1:1; }); return arr; }
   srt(atrasados); srt(hoje); srt(semana);
   var hr=new Date().getHours();
-  var h='<h2>'+(hr<12?'Bom dia':(hr<20?'Boa tarde':'Boa noite'))+', Josimar</h2>';
+  var h='<h2>'+(hr<12?'Bom dia':(hr<20?'Boa tarde':'Boa noite'))+', Josimar</h2>'+radarHojeCard();
   h+='<div class="stats"><div class="stat"><b>'+hoje.length+'</b><span>Hoje</span></div>'+
      '<div class="stat '+(atrasados.length?'alert':'')+'"><b>'+atrasados.length+'</b><span>Atrasados</span></div>'+
      '<div class="stat"><b>'+ativos+'</b><span>Ativos</span></div></div>';
@@ -406,7 +407,7 @@ function vMais(){
        '<div class="note" style="margin-top:8px">Primeira vez: escolha um email e uma palavra-passe (mín. 8 caracteres) e toque em “Criar conta”. A primeira conta criada fica como única dona do CRM.</div>';
   }
   h+='</div>';
-  h+='<h3>Angariação</h3><div class="card"><button class="btn full" onclick="go(\'olx\')">🏠 Leads da OLX</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'ang\')">📄 Contratos e comissões</button><button class="btn ghost full" style="margin-top:8px" onclick="numMes=0;go(\'num\')">📈 Números do mês</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'mercado\')">📊 Mercado da zona</button></div>';
+  h+='<h3>Angariação</h3><div class="card"><button class="btn full" onclick="go(\'olx\')">🏠 Leads da OLX</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'ang\')">📄 Contratos e comissões</button><button class="btn ghost full" style="margin-top:8px" onclick="numMes=0;go(\'num\')">📈 Números do mês</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'mercado\')">📊 Mercado da zona</button><button class="btn ghost full" style="margin-top:8px" onclick="radarSel=0;go(\'radar\')">📡 Radar semanal</button></div>';
   h+='<h3>Aparência</h3><div class="card"><div class="chips" style="flex-wrap:wrap;overflow:visible;margin:0">';
   for(var ti=0;ti<TEMAS.length;ti++) h+='<button class="chip '+(temaAtual()===TEMAS[ti][0]?'on':'')+'" onclick="setTema(\''+TEMAS[ti][0]+'\')">'+TEMAS[ti][1]+'</button>';
   h+='</div></div>';
@@ -836,7 +837,7 @@ function sync(manual){
 var olx=null, olxLoading=false, olxF='Todos';
 function loadOlx(){
   olxLoading=true;
-  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,title,price,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
+  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,title,price,area_m2,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
     olxLoading=false;
     if(st===200 && rows){
       olx=[];
@@ -870,7 +871,7 @@ function vOlx(){
     var okUrl=L.url && /^https?:\/\//.test(L.url), dd=diasDesde(L.posted_at), q="'"+esc(L.lead)+"'";
     h+='<div class="card"><div class="name" style="white-space:normal">'+esc(L.title||'Anúncio sem título')+'</div>'+
        '<div class="sub">'+(L.price?esc(Number(L.price).toLocaleString('pt-PT'))+' € · ':'')+esc(loc)+'</div>'+
-       '<div><span class="tag gold">Score '+esc(L.score||0)+'</span>'+(L.negocio?'<span class="tag">'+esc(L.negocio)+'</span>':'')+
+       '<div><span class="tag gold">Score '+esc(L.score||0)+'</span>'+olxMkt(L)+(L.negocio?'<span class="tag">'+esc(L.negocio)+'</span>':'')+
        (dd!==null?'<span class="tag">há '+dd+(dd===1?' dia':' dias')+'</span>':'')+
        (L.republicado?'<span class="tag blue">Republicado</span>':'')+
        (L.sem_imobiliarias?'<span class="tag red">Dispensa agências</span>':'')+
@@ -914,11 +915,18 @@ function contactLead(leadId){
   var h='<div class="sheet-h"><h2>Contactar</h2><button class="x" onclick="closeModal()">×</button></div>';
   h+='<div class="card"><b>'+esc(L.title||'Anúncio')+'</b><div class="sub" style="white-space:normal">'+(L.price?esc(Number(L.price).toLocaleString('pt-PT'))+' € · ':'')+esc(L.freguesia||L.concelho||'')+'</div></div>';
   if(L.sem_imobiliarias) h+='<div class="card" style="border-color:var(--redline);color:var(--red);font-weight:600">⚠️ Este anúncio diz que dispensa imobiliárias. Pondere se vale a pena contactar.</div>';
+  h+='<div id="olxarg"></div>';
   h+='<label>Mensagem (pode editar)</label><textarea id="otxt" style="min-height:190px">'+esc(leadMsg(L))+'</textarea>';
   h+='<button class="btn gold full" style="margin-top:10px" onclick="copyOpen('+q+')">📋 Copiar mensagem e abrir anúncio</button>';
   h+='<div class="note" style="margin:8px 0 14px">No anúncio, toque em “Enviar mensagem” e cole o texto.</div>';
   h+='<button class="btn full" onclick="convLead('+q+',true)">✓ Já enviei → guardar contacto e follow-up</button>';
   openModal(h);
+  var e=L.price&&Number(L.area_m2)>=20?Number(L.price)/Number(L.area_m2):null, tip=tipFromStr(L.tipologia);
+  if(e && L.freguesia) getMkt(L.freguesia, tip, negKey(L.negocio), function(d){
+    var r=mktPct(d,e), el=document.getElementById('olxarg'); if(!el||!r) return;
+    el.innerHTML='<div class="card note">📊 Este anúncio pede <b>'+eurm2(e)+'</b>, '+difTxt(e,r.b.eur_m2)+' de '+(r.usaTip&&tip?tip+' ':'')+'em '+esc(L.freguesia)+' ('+eurm2(r.b.eur_m2)+', '+r.b.n+' anúncios).'+
+      (r.p>10?' <b>Argumento:</b> preço acima do mercado costuma atrasar a venda; ofereça o estudo de mercado gratuito.':(r.p<-5?' Preço competitivo: deve vender depressa, convém contactar já.':''))+'</div>';
+  });
 }
 function copyEl(id){
   var e=document.getElementById(id), ok=false; if(!e) return false;
@@ -1305,7 +1313,7 @@ function procuraBloco(c){
     if(!mm.length) h+='<div class="note">Nenhum imóvel disponível encaixa. Registe imóveis no separador Imóveis.</div>';
     for(i=0;i<mm.length && i<8;i++){ var m=mm[i].m, vv=mm[i].r.vis;
       h+='<div class="ap"><div class="row"><div class="grow" onclick="openImvFicha(\''+m.id+'\')" style="cursor:pointer"><div class="t">'+esc(imvTitulo(m))+'</div><div class="sub">'+esc(imvLinha(m))+'</div>'+
-         (mm[i].r.acima?'<span class="tag red">Ligeiramente acima</span>':'')+(vv?'<span class="tag blue">'+esc(vv.estado)+'</span>':'')+'</div>'+
+         (mm[i].r.acima?'<span class="tag red">Ligeiramente acima</span>':'')+mktTagAsync(m)+(vv?'<span class="tag blue">'+esc(vv.estado)+'</span>':'')+'</div>'+
          '<button class="btn gold sm" onclick="propor('+q+',\''+m.id+'\',\'c\')">'+(vv?'Reenviar':'Propor')+'</button></div></div>'; }
   }
   var vs=(c.vis||[]).slice().sort(function(a,b){ return a.d<b.d?1:-1; });
@@ -1625,6 +1633,7 @@ function mdLite(t){
       return '<tr>'+cs.map(function(c){ return '<'+(ri===0?'th':'td')+' style="border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top">'+inl(c.trim())+'</'+(ri===0?'th':'td')+'>'; }).join('')+'</tr>'; }).join('')+'</table></div>'; tb=[]; }
   for(i=0;i<L.length;i++){ if(/^\s*\|.*\|\s*$/.test(L[i])){ tb.push(L[i]); continue; } flush();
     var x=L[i]; if(!x.trim()){ h+='<div style="height:6px"></div>'; continue; }
+    if(/^\s*#{1,4}\s+/.test(x)){ h+='<div style="font-weight:700;margin:12px 0 4px;color:var(--ink)">'+inl(x.replace(/^\s*#{1,4}\s+/,''))+'</div>'; continue; }
     h+='<div style="margin:2px 0">'+inl(x.replace(/^\s*[-*•]\s+/,'• '))+'</div>'; }
   flush(); return h;
 }
@@ -1682,6 +1691,95 @@ function openDossier(cid){
   getMkt(zona,tip,neg,function(d){ var el=document.getElementById('dosmkt'); if(!el) return;
     if(!zona||zona==='Outra'){ el.innerHTML='<div class="note">Indique a zona do contacto ou do imóvel para comparar com o mercado.</div>'; return; }
     el.innerHTML=mktHtml(d,{zona:zona,tip:tip,neg:neg},m0?imvEur(m0):(est&&est.eurm2?est.eurm2:null),neg==='arrendamento'); });
+}
+
+
+/* ---------- preço face ao mercado: utilitários ---------- */
+function mktPct(d, e){
+  if(!d||!e) return null;
+  var b=d.tip&&d.tip.n>=3?d.tip:(d.todas&&d.todas.n>=3?d.todas:null);
+  if(!b||!b.eur_m2) return null;
+  return {p:Math.round(100*(e-b.eur_m2)/b.eur_m2), b:b, usaTip:b===d.tip};
+}
+function pctTag(r){ return r?'<span class="tag '+(r.p>10?'red':(r.p<-5?'green':''))+'">'+(r.p>0?'+':'')+r.p+'% vs mediana</span>':''; }
+var mkSeq=0;
+function tagAsync(zona, tip, neg, e){
+  if(!e||!zona||zona==='Outra'||!sess) return '';
+  var c=mktCache[mktKey(zona,tip,neg)];
+  if(c&&c.data!==undefined) return pctTag(mktPct(c.data,e));
+  var id='mk'+(++mkSeq);
+  getMkt(zona,tip,neg,function(d){ var el=document.getElementById(id); if(el) el.outerHTML=pctTag(mktPct(d,e)); });
+  return '<span id="'+id+'"></span>';
+}
+function olxMkt(L){ var e=L.price&&Number(L.area_m2)>=20?Number(L.price)/Number(L.area_m2):null; return tagAsync(L.freguesia, tipFromStr(L.tipologia), negKey(L.negocio), e); }
+function mktTagAsync(m){ var q=mktFor(m); return tagAsync(q.zona, q.tip, q.neg, imvEur(m)); }
+
+/* ================= RADAR SEMANAL ================= */
+var radar={list:null, loading:false, hoje:null, hojeLoading:false}, radarSel=0;
+function loadRadar(){
+  if(!sess||radar.loading) return; radar.loading=true;
+  rest('GET','/rest/v1/crm_radar?select=id,created_at,semana,titulo,texto,dados,lido&order=created_at.desc&limit=12',null,null,function(st,j){
+    radar.loading=false; radar.list=(st===200&&j)?j:[];
+    if((cur==='radar'||cur==='hoje') && document.getElementById('modal').className.indexOf('open')<0) render();
+  });
+}
+function radarHojeCard(){
+  if(!sess) return '';
+  if(radar.list===null){ loadRadar(); return ''; }
+  var r=radar.list[0]; if(!r||r.lido) return '';
+  return '<div class="card tap" style="border-color:var(--gold)" onclick="radarSel=0;go(\'radar\')"><div class="row"><div class="grow"><b>📡 Novo radar da semana</b><div class="sub">'+esc(r.titulo)+'</div></div><span class="note">Ler ›</span></div></div>';
+}
+function dataPT(iso){ var d=new Date(iso); return isNaN(d)?'':d.getDate()+' '+MESES[d.getMonth()]+' '+d.getFullYear(); }
+function zonasTabela(zs, prev, arr){
+  if(!zs||!zs.length) return '<div class="note">Sem zonas com anúncios suficientes.</div>';
+  var pm={}, i; for(i=0;i<(prev||[]).length;i++) pm[prev[i].zona]=prev[i];
+  var h='<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%">'+
+    '<tr>'+['Zona','€/m²','vs semana ant.','Anúncios','Dias'].map(function(t){ return '<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);color:var(--muted);font-weight:600">'+t+'</th>'; }).join('')+'</tr>';
+  for(i=0;i<zs.length;i++){ var z=zs[i], p=pm[z.zona], dl='—';
+    if(p&&p.eur_m2){ var d=Math.round(100*(z.eur_m2-p.eur_m2)/p.eur_m2); dl=d===0?'=':'<span style="color:'+(d>0?'var(--green)':'var(--red)')+'">'+(d>0?'▲ ':'▼ ')+Math.abs(d)+'%</span>'; }
+    h+='<tr><td style="padding:5px 6px;border-bottom:1px solid var(--line)">'+esc(z.zona)+'</td><td style="padding:5px 6px;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap">'+Math.round(z.eur_m2).toLocaleString('pt-PT')+'</td>'+
+       '<td style="padding:5px 6px;border-bottom:1px solid var(--line)">'+dl+'</td><td style="padding:5px 6px;border-bottom:1px solid var(--line)">'+z.n+'</td><td style="padding:5px 6px;border-bottom:1px solid var(--line)">'+z.dias+'</td></tr>'; }
+  return h+'</table></div>'+(arr?'<div class="note">Arrendamento: €/m² por mês.</div>':'');
+}
+function radarDados(d, prev){
+  if(!d) return '';
+  var h='<h3>Venda · mediana pedida por zona</h3><div class="card">'+zonasTabela(d.zonas, prev&&prev.zonas)+'</div>';
+  if(d.zonas_arr&&d.zonas_arr.length) h+='<details><summary>Arrendamento por zona</summary><div style="margin-top:8px">'+zonasTabela(d.zonas_arr, prev&&prev.zonas_arr, true)+'</div></details>';
+  var np=d.novos_part||[], i;
+  h+='<h3>Oportunidades de angariação ('+np.length+')</h3><div class="note" style="margin-bottom:6px">'+(d.novos7||0)+' anúncios novos em 7 dias; estes são de particulares que não recusam agências.</div>';
+  for(i=0;i<np.length;i++){ var x=np[i], ok=x.url&&/^https?:\/\//.test(x.url);
+    h+='<div class="ap"><div class="t" style="white-space:normal">'+esc(x.title||'Anúncio')+'</div><div class="sub" style="white-space:normal">'+(x.price?eur(x.price)+' · ':'')+(x.area_m2?Math.round(x.area_m2)+' m² · ':'')+esc(x.freguesia||'')+' · '+esc(x.negocio||'')+'</div>'+
+       (ok?'<a class="btn ghost sm" style="display:inline-block;margin-top:6px;text-decoration:none" target="_blank" rel="noopener" href="'+esc(x.url)+'">Ver anúncio</a>':'')+'</div>'; }
+  var ds=d.descidas7||[];
+  h+='<h3>Descidas de preço na semana ('+ds.length+')</h3>';
+  if(!ds.length) h+='<div class="note">Nenhuma descida registada nos últimos 7 dias.</div>';
+  for(i=0;i<ds.length;i++){ var y=ds[i], ok2=y.url&&/^https?:\/\//.test(y.url);
+    h+='<div class="ap"><div class="t" style="white-space:normal">'+esc(y.title||'Anúncio')+'</div><div class="sub">'+esc(y.freguesia||'')+(y.tipologia?' · '+esc(y.tipologia):'')+'</div>'+
+       '<div style="margin-top:4px"><s class="note">'+eur(y.p_ant)+'</s> → <b>'+eur(y.price)+'</b> <span class="tag red">'+String(y.pct).replace('.',',')+'%</span></div>'+
+       (ok2?'<a class="btn ghost sm" style="display:inline-block;margin-top:6px;text-decoration:none" target="_blank" rel="noopener" href="'+esc(y.url)+'">Ver anúncio</a>':'')+'</div>'; }
+  return h;
+}
+function vRadar(){
+  var h='<h2>Radar semanal</h2>', i;
+  if(!sess) return h+'<div class="empty">Entre na conta (separador Mais) para ver o radar.</div>';
+  if(radar.list===null){ loadRadar(); return h+'<div class="spin">A carregar…</div>'; }
+  var L=radar.list;
+  h+='<div class="chips"><button class="chip '+(radarSel===-1?'on':'')+'" onclick="radarSel=-1;render()">Dados de hoje</button>';
+  for(i=0;i<L.length;i++) h+='<button class="chip '+(radarSel===i?'on':'')+'" onclick="radarSel='+i+';render()">'+esc(dataPT(L[i].created_at))+'</button>';
+  h+='</div>';
+  if(radarSel===-1 || !L.length){
+    if(!L.length) h+='<div class="card note">O primeiro radar com notícias e taxas chega na segunda-feira de manhã. Entretanto, estes são os dados de hoje do teu CRM.</div>';
+    if(radar.hoje===null){ if(!radar.hojeLoading){ radar.hojeLoading=true; rest('POST','/rest/v1/rpc/radar_interno','{}',null,function(st,j){ radar.hojeLoading=false; radar.hoje=(st===200&&j)?j:false; if(cur==='radar') render(); }); } return h+'<div class="spin">A calcular…</div>'; }
+    if(radar.hoje===false) return h+'<div class="empty">Não foi possível calcular os dados.</div>';
+    var ult=L[0]&&L[0].dados&&L[0].dados.interno;
+    return h+'<div class="note">Calculado agora com os anúncios recolhidos'+(ult?'; comparação com o último radar':'')+'.</div>'+radarDados(radar.hoje, ult);
+  }
+  var r=L[Math.min(radarSel,L.length-1)], prev=L[radarSel+1];
+  if(!r.lido){ r.lido=true; rest('PATCH','/rest/v1/crm_radar?id=eq.'+r.id,JSON.stringify({lido:true}),'return=minimal',function(){}); }
+  h+='<div class="card"><div style="font-weight:700;font-family:var(--fh);font-size:18px">'+esc(r.titulo)+'</div><div class="note">'+esc(dataPT(r.created_at))+'</div></div>';
+  if(r.texto) h+='<div class="card" style="color:var(--ink)">'+mdLite(r.texto)+'</div>';
+  if(r.dados&&r.dados.interno) h+=radarDados(r.dados.interno, prev&&prev.dados&&prev.dados.interno);
+  return h;
 }
 
 /* ================= MENSAGENS PRONTAS ================= */
