@@ -311,6 +311,7 @@ function vHoje(){
   h+='<div class="stats"><div class="stat"><b>'+hoje.length+'</b><span>Hoje</span></div>'+
      '<div class="stat '+(atrasados.length?'alert':'')+'"><b>'+atrasados.length+'</b><span>Atrasados</span></div>'+
      '<div class="stat"><b>'+ativos+'</b><span>Ativos</span></div></div>';
+  h+=alertasHoje();
   var ct=contratosAlerta();
   if(ct.length){ h+='<h3 style="color:var(--red)">📄 Contratos a terminar ('+ct.length+')</h3>'; for(i=0;i<ct.length;i++) h+=angCard(ct[i]); }
   if(sem.length){ h+='<h3 style="color:var(--red)">⚠️ Sem agendamento ('+sem.length+')</h3>'; for(i=0;i<sem.length;i++) h+=contactCard(sem[i]); }
@@ -416,6 +417,11 @@ function vMais(){
   }
   h+='</div>';
   h+='<h3>Angariação</h3><div class="card"><button class="btn full" onclick="go(\'olx\')">🏠 Leads de anúncios</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'ang\')">📄 Contratos e comissões</button><button class="btn ghost full" style="margin-top:8px" onclick="numMes=0;go(\'num\')">📈 Números do mês</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'mercado\')">📊 Mercado da zona</button><button class="btn ghost full" style="margin-top:8px" onclick="radarSel=0;go(\'radar\')">📡 Radar semanal</button></div>';
+  h+='<h3>Alertas de acompanhamento</h3><div class="card">'+
+     '<div class="g2"><div><label>Responder a contactos novos em até (horas)</label><input type="number" inputmode="numeric" min="1" value="'+cfg.rapidoH+'" onchange="setCfg(\'rapidoH\',this.value)"></div></div>'+
+     '<div class="g2"><div><label>Compradores parados há (dias)</label><input type="number" inputmode="numeric" min="1" value="'+cfg.frioC+'" onchange="setCfg(\'frioC\',this.value)"></div>'+
+     '<div><label>Proprietários parados há (dias)</label><input type="number" inputmode="numeric" min="1" value="'+cfg.frioV+'" onchange="setCfg(\'frioV\',this.value)"></div></div>'+
+     '<div class="note" style="margin-top:8px">Os alertas aparecem no ecrã Hoje, com uma mensagem escrita pela IA pronta a enviar.</div></div>';
   h+='<h3>Aparência</h3><div class="card"><div class="chips" style="flex-wrap:wrap;overflow:visible;margin:0">';
   for(var ti=0;ti<TEMAS.length;ti++) h+='<button class="chip '+(temaAtual()===TEMAS[ti][0]?'on':'')+'" onclick="setTema(\''+TEMAS[ti][0]+'\')">'+TEMAS[ti][1]+'</button>';
   h+='</div></div>';
@@ -886,14 +892,14 @@ function portal(L){
 function origemDe(L){ var p=portal(L); return ORIGENS.indexOf(p)>-1?p:'Outro'; }
 function loadOlx(){
   olxLoading=true;
-  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,source,title,price,area_m2,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
+  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,source,title,price,area_m2,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at,first_seen_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
     olxLoading=false;
     if(st===200 && rows){
       olx=[];
       for(var i=0;i<rows.length;i++){ var L=rows[i].listings||{}; if(L.fora_do_alvo) continue; L.lead=rows[i].id; olx.push(L); }
       olx.sort(function(a,b){ return (b.score||0)-(a.score||0); });
     } else { olx=[]; toast('Não foi possível carregar os leads'); }
-    if(cur==='olx') render();
+    if(cur==='olx' || (cur==='hoje' && !modalAberto())) render();
   });
 }
 var olxHideNo=false, lastDis=null;
@@ -1832,6 +1838,93 @@ function vRadar(){
   if(r.texto) h+='<div class="card" style="color:var(--ink)">'+mdLite(r.texto)+'</div>';
   if(r.dados&&r.dados.interno) h+=radarDados(r.dados.interno, prev&&prev.dados&&prev.dados.interno);
   return h;
+}
+
+
+/* ================= ALERTAS: RESPOSTA RÁPIDA E CONTACTOS A ARREFECER ================= */
+var cfg={rapidoH:2, frioC:7, frioV:10};
+try{ var _c=JSON.parse(localStorage.getItem('crm_cfg')||'{}'); for(var _k in _c){ if(cfg.hasOwnProperty(_k) && Number(_c[_k])>0) cfg[_k]=Number(_c[_k]); } }catch(e){}
+function setCfg(k,v){ v=Math.round(Number(v)); if(!(v>0)) return; cfg[k]=v; try{ localStorage.setItem('crm_cfg',JSON.stringify(cfg)); }catch(e){} toast('Guardado'); }
+var NAO_CONTACTO={'Nota':1,'Imóvel':1};
+function ultimoContacto(c){
+  var best=null, i, x, agora=nowLocal();
+  for(i=0;i<(c.hist||[]).length;i++){ x=c.hist[i]; if(!NAO_CONTACTO[x.canal] && x.d && (!best||x.d>best)) best=x.d; }
+  for(i=0;i<(c.ag||[]).length;i++){ x=c.ag[i]; if(x.feito && x.d && x.d<=agora && (!best||x.d>best)) best=x.d; }
+  return best;
+}
+function horasDesde(s){ var d=parseL(s); return d?(Date.now()-d.getTime())/3600000:null; }
+function tempoTxt(h){ if(h<1) return 'há menos de 1 h'; if(h<48) return 'há '+Math.floor(h)+' h'; return 'há '+Math.floor(h/24)+' dias'; }
+function listasAlerta(){
+  var rap=[], frio=[], i, c, u, hh;
+  for(i=0;i<db.contacts.length;i++){ c=db.contacts[i];
+    if(isClosed(c) || c.estado==='Nutrir') continue;
+    u=ultimoContacto(c);
+    if(!u){ hh=horasDesde(c.criado); if(hh!==null && hh>=cfg.rapidoH) rap.push({c:c,h:hh}); continue; }
+    hh=horasDesde(u); var lim=(vendedor(c)?cfg.frioV:cfg.frioC)*24;
+    if(hh!==null && hh>=lim) frio.push({c:c,h:hh});
+  }
+  rap.sort(function(a,b){ return b.h-a.h; }); frio.sort(function(a,b){ return b.h-a.h; });
+  return {rap:rap, frio:frio};
+}
+function alertaCard(x, objetivo, cor){
+  var c=x.c, q="'"+c.id+"'";
+  return '<div class="card"><div class="row"><div class="av">'+esc(initials(c.nome))+'</div><div class="grow" onclick="openContact('+q+')" style="cursor:pointer"><div class="name">'+esc(c.nome)+'</div><div class="sub">'+esc(c.interesse||c.tipo||'')+'</div></div>'+
+    '<div class="when" style="color:'+cor+'">'+tempoTxt(x.h)+'<div class="sub" style="text-align:right">'+(objetivo==='primeiro'?'sem resposta':'sem contacto')+'</div></div></div>'+
+    '<div class="btns" style="margin-top:10px"><button class="btn gold sm" onclick="openFollow('+q+',\''+objetivo+'\')">✨ Mensagem IA</button>'+
+    (c.tel?'<a class="btn ghost sm" style="text-align:center;text-decoration:none" href="tel:'+esc(String(c.tel).replace(/\s/g,''))+'">📞 Ligar</a>':'')+'</div></div>';
+}
+function alertasHoje(){
+  var L=listasAlerta(), h='', i;
+  if(L.rap.length){ h+='<h3 style="color:var(--red)">⚡ Responder já ('+L.rap.length+')</h3><div class="note" style="margin:-4px 0 8px">Contactos novos sem resposta há mais de '+cfg.rapidoH+' h. Responder depressa aumenta muito a hipótese de negócio.</div>';
+    for(i=0;i<L.rap.length;i++) h+=alertaCard(L.rap[i],'primeiro','var(--red)'); }
+  if(sess && olx===null && !olxLoading) loadOlx();
+  if(olx && olx.length){ var n=0; for(i=0;i<olx.length;i++){ var f=olx[i].first_seen_at||olx[i].posted_at; if(f && Date.now()-Date.parse(f)<86400000) n++; }
+    if(n) h+='<div class="card tap" onclick="go(\'olx\')"><div class="row"><div class="grow"><b>🏠 '+n+(n===1?' anúncio novo':' anúncios novos')+' nas últimas 24 h</b><div class="sub">Os primeiros a contactar o proprietário têm vantagem</div></div><span class="note">Ver ›</span></div></div>'; }
+  if(L.frio.length){ h+='<h3>❄️ A arrefecer ('+L.frio.length+')</h3>';
+    for(i=0;i<L.frio.length && i<5;i++) h+=alertaCard(L.frio[i],'reativar','var(--muted)');
+    if(L.frio.length>5) h+='<div class="note" style="text-align:center">+'+(L.frio.length-5)+' contactos parados</div>'; }
+  return h;
+}
+function contextoIA(c){
+  var hs=(c.hist||[]).slice(-6).map(function(x){ return {data:x.d, canal:x.canal, texto:String(x.txt||'').slice(0,220)}; });
+  var a=nextAp(c), u=ultimoContacto(c), ctx={
+    primeiro_nome:String(c.nome||'').split(/\s+/)[0], tipo:c.tipo, estado:c.estado, zona:c.zona, origem:c.origem, interesse:c.interesse, valor:c.orcamento,
+    notas:String(c.notas||'').slice(0,300), dias_sem_contacto:u?Math.floor(horasDesde(u)/24):null, criado:c.criado,
+    ultimas_interacoes:hs, proximo_agendamento:a?{tipo:a.tipo, data:a.d, nota:a.nota}:null };
+  if(c.procura) ctx.procura=procuraTxt(c);
+  if(comprador(c)){ var mm=imoveisPara(c).filter(function(x){ return !x.r.vis; }).slice(0,3); if(mm.length) ctx.imoveis_compativeis_ainda_nao_enviados=mm.map(function(x){ return imvTitulo(x.m)+' · '+imvLinha(x.m); }); }
+  if(c.ang) ctx.contrato={estado:c.ang.estado, exclusivo:c.ang.excl, fim:c.ang.fim, preco:c.ang.preco};
+  var ims=db.imoveis.filter(function(m){ return m.dono===c.id; }); if(ims.length) ctx.imoveis_do_proprietario=ims.map(function(m){ return imvTitulo(m)+' · '+imvLinha(m); });
+  return ctx;
+}
+var followCtx=null;
+function openFollow(cid, objetivo){
+  var c=byId(cid); if(!c) return; var q="'"+cid+"'";
+  if(!sess){ openMsgs(cid); return; }
+  followCtx={cid:cid, obj:objetivo};
+  openModal('<div class="sheet-h"><h2>Mensagem IA</h2><button class="x" onclick="closeModal()">×</button></div><div class="spin">✨ A escrever a mensagem para '+esc(c.nome)+'…</div>');
+  withToken(function(t){
+    if(!t){ openMsgs(cid); toast('Sem ligação — use as mensagens prontas'); return; }
+    xhr('POST', SB_URL+'/functions/v1/followup-ia', {apikey:SB_KEY, Authorization:'Bearer '+t, 'Content-Type':'application/json'}, JSON.stringify({contacto:contextoIA(c), objetivo:objetivo}), function(st,j){
+      if(!followCtx || followCtx.cid!==cid || !modalAberto()) return;
+      if(st!==200 || !j || !j.mensagem){ openMsgs(cid, objetivo==='primeiro'?(vendedor(c)?'p1':'c1'):'x2'); toast(j&&j.error==='sem_chave'?'IA não ativada — mensagem pronta':'IA indisponível — mensagem pronta'); return; }
+      var h='<div class="sheet-h"><h2>Mensagem IA</h2><button class="x" onclick="openContact('+q+')">×</button></div>';
+      h+='<div class="note" style="margin-bottom:8px">Para: <b>'+esc(c.nome)+'</b>'+(c.tel?' · '+esc(c.tel):' · sem telemóvel (escolhe o contacto no WhatsApp)')+'</div>';
+      h+='<textarea id="mtxt" style="min-height:170px">'+esc(j.mensagem)+'</textarea>';
+      if(j.porque) h+='<div class="note" style="margin-top:6px">💡 '+esc(j.porque)+'</div>';
+      h+='<button class="btn gold full" style="margin-top:10px" onclick="waSend('+q+',\'Follow-up (mensagem IA)\');depoisFollow('+q+')">💬 Enviar no WhatsApp</button>';
+      h+='<div class="btns" style="margin-top:8px"><button class="btn ghost" onclick="openFollow('+q+',\''+objetivo+'\')">↻ Outra versão</button><button class="btn ghost" onclick="toast(copyEl(\'mtxt\')?\'Mensagem copiada\':\'Copie o texto manualmente\')">📋 Copiar</button></div>';
+      h+='<div class="note" style="margin-top:10px">Revê sempre antes de enviar: a IA só usa o que está na ficha do contacto.</div>';
+      openModal(h);
+    });
+  });
+}
+function depoisFollow(cid){
+  var c=byId(cid); if(!c) return; render();
+  if(c.estado==='Novo'){ c.estado='Contactado'; c.hist.push({d:nowLocal(), canal:'Nota', txt:'Estado alterado para: Contactado'}); save(c); }
+  var a=nextAp(c);
+  if(!a || parseL(a.d)<new Date()){ newAp.preset={d:addDays(2,'10:00'), tipo:'Follow-up', nota:'Ver se respondeu à mensagem'}; toast('Marque quando voltar a falar'); newAp(cid); }
+  else { openContact(cid); toast('Mensagem registada'); }
 }
 
 /* ================= MENSAGENS PRONTAS ================= */
