@@ -91,10 +91,14 @@ h3{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 /* modal */
 .modal{position:fixed;inset:0;background:rgba(10,18,32,.55);z-index:50;display:none;align-items:flex-end;justify-content:center}
 .modal.open{display:flex}
-.sheet{background:var(--bg);width:100%;max-width:820px;max-height:94vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:18px 16px calc(env(safe-area-inset-bottom) + 20px);-webkit-overflow-scrolling:touch}
-.sheet-h{display:flex;align-items:center;margin-bottom:10px}
-.sheet-h h2{margin:0;flex:1}
-.x{background:none;border:0;font-size:26px;color:var(--muted);padding:0 4px}
+.sheet{background:var(--bg);width:100%;max-width:820px;max-height:calc(100vh - env(safe-area-inset-top) - 12px);overflow-y:auto;border-radius:20px 20px 0 0;padding:0 16px calc(env(safe-area-inset-bottom) + 20px);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+@supports (height:100dvh){ .sheet{max-height:calc(100dvh - env(safe-area-inset-top) - 12px)} }
+.sheet>:first-child:not(.sheet-h){margin-top:18px}
+.sheet-h{display:flex;align-items:center;position:-webkit-sticky;position:sticky;top:0;z-index:6;background:var(--bg);margin:0 -16px 10px;padding:20px 12px 10px 16px;border-bottom:1px solid var(--line);border-radius:20px 20px 0 0}
+.sheet-h:before{content:'';position:absolute;top:7px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:2px;background:var(--line)}
+.sheet-h h2{margin:0;flex:1;min-width:0;font-size:21px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.x{flex-shrink:0;background:var(--card);border:1px solid var(--line);border-radius:50%;width:38px;height:38px;font-size:24px;line-height:34px;color:var(--ink);padding:0;margin-left:10px;text-align:center}
+.back{display:inline-flex;align-items:center;gap:4px;background:none;border:0;color:var(--muted);font-weight:600;font-size:14px;padding:4px 0;margin:0 0 4px}
 label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:12px 0 5px;letter-spacing:.04em;text-transform:uppercase}
 input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);-webkit-appearance:none;appearance:none}
 textarea{min-height:76px;resize:vertical}
@@ -246,7 +250,10 @@ function tagEstado(e){
 function seed(){ return {contacts:[], imoveis:[]}; }
 
 /* ---------- Navegação ---------- */
-function go(v){
+var navStack=[], SUBV={olx:1,ang:1,num:1,mercado:1,radar:1};
+function go(v, isBack){
+  if(!isBack && v!==cur){ navStack.push(cur); if(navStack.length>20) navStack.shift(); }
+  if(!SUBV[v]) navStack=[];
   cur=v;
   var bs=document.querySelectorAll('nav button');
   for(var i=0;i<bs.length;i++){ bs[i].className = bs[i].getAttribute('data-v')===v ? 'on' : ''; }
@@ -265,6 +272,7 @@ function render(){
   else if(cur==='mercado') h=vMercado();
   else if(cur==='radar') h=vRadar();
   else h=vMais();
+  if(SUBV[cur]) h='<button class="back" onclick="voltarView()">‹ Voltar</button>'+h;
   document.getElementById('view').innerHTML=h;
 }
 
@@ -423,7 +431,39 @@ function vMais(){
 /* ---------- MODAL ---------- */
 function openModal(html){ document.getElementById('sheet').innerHTML=html; document.getElementById('modal').className='modal open'; document.getElementById('sheet').scrollTop=0; }
 function closeModal(){ document.getElementById('modal').className='modal'; }
-document.getElementById('modal').onclick=function(e){ if(e.target.id==='modal') closeModal(); };
+document.getElementById('modal').onclick=function(e){ if(e.target.id==='modal') voltar(); };
+function modalAberto(){ return document.getElementById('modal').className.indexOf('open')>-1; }
+function voltar(){ var x=document.querySelector('#sheet .sheet-h .x'); if(x) x.click(); else closeModal(); }
+function voltarView(){ var p=navStack.pop(); if(!p) p='mais'; go(p,true); }
+/* gestos: arrastar para a direita = voltar; puxar a janela para baixo = fechar */
+(function(){
+  var sx=0, sy=0, st=0, on=false;
+  function alvoIgnorado(t){
+    for(var n=t; n && n!==document.body; n=n.parentNode){
+      var tg=(n.tagName||'').toLowerCase();
+      if(tg==='input'||tg==='textarea'||tg==='select') return true;
+      if(n.className && typeof n.className==='string' && n.className.indexOf('chips')>-1) return true;
+      if(n.style && n.style.overflowX==='auto') return true;
+    }
+    return false;
+  }
+  document.addEventListener('touchstart',function(e){
+    if(e.touches.length!==1 || alvoIgnorado(e.target)){ on=false; return; }
+    var t=e.touches[0]; sx=t.clientX; sy=t.clientY; on=true;
+    var sh=document.getElementById('sheet'); st=sh?sh.scrollTop:0;
+  },{passive:true});
+  document.addEventListener('touchend',function(e){
+    if(!on) return; on=false;
+    var t=e.changedTouches[0], dx=t.clientX-sx, dy=t.clientY-sy;
+    var dir=(dx>80 && Math.abs(dy)<Math.abs(dx)*0.6)?'dir':((dy>120 && Math.abs(dx)<dy*0.6)?'baixo':null);
+    if(!dir) return;
+    if(modalAberto()){
+      var sh=document.getElementById('sheet');
+      if(dir==='dir' || (dir==='baixo' && st<=0 && sh.scrollTop<=0)) voltar();
+    } else if(dir==='dir' && SUBV[cur]) voltarView();
+  },{passive:true});
+  document.addEventListener('keydown',function(e){ if(e.keyCode===27 && modalAberto()) voltar(); });
+})();
 function opts(arr, sel){ var h=''; for(var i=0;i<arr.length;i++) h+='<option'+(arr[i]===sel?' selected':'')+'>'+esc(arr[i])+'</option>'; return h; }
 function v(id){ var e=document.getElementById(id); return e?e.value.trim():''; }
 
@@ -1167,7 +1207,7 @@ function imvLista(){
 /* --- ficha do imóvel --- */
 function openImvFicha(id){
   var m=imvById(id); if(!m) return; var q="'"+id+"'", i;
-  var h='<div class="sheet-h"><h2 style="font-size:22px">'+esc(imvTitulo(m))+'</h2><button class="x" onclick="closeModal()">×</button></div>';
+  var h='<div class="sheet-h"><h2>'+esc(imvTitulo(m))+'</h2><button class="x" onclick="closeModal()">×</button></div>';
   h+='<div>'+estTag(m.estado)+'<span class="tag">'+esc(m.negocio)+'</span><span class="tag">'+esc(m.origem)+'</span></div>';
   h+='<div class="card" style="margin-top:10px">'+
      (m.preco?'<div style="font-size:22px;font-weight:700;font-family:var(--fh)">'+eur(m.preco)+(m.negocio==='Arrendamento'?' <span class="note">/mês</span>':'')+'</div>':'')+
@@ -1468,8 +1508,8 @@ function eurm2(n){ return Math.round(Number(n)||0).toLocaleString('pt-PT')+' €
 function loadMercado(){
   if(!sess||mkt.loading) return; mkt.loading=true; var neg=mkt.neg, n=2;
   function fim(){ if(--n===0){ mkt.loading=false; if(cur==='mercado') render(); } }
-  rest('POST','/rest/v1/rpc/mercado_resumo',JSON.stringify({p_neg:neg}),null,function(st,j){ mkt.rows=(st===200&&j)?j:[]; fim(); });
-  rest('POST','/rest/v1/rpc/mercado_descidas',JSON.stringify({p_neg:neg}),null,function(st,j){ mkt.desc=(st===200&&j)?j:[]; fim(); });
+  rest('POST','/rest/v1/rpc/mercado_resumo',JSON.stringify({p_neg:neg}),null,function(st,j){ mkt.rows=(st===200&&j&&typeof j.length==='number')?j:[]; fim(); });
+  rest('POST','/rest/v1/rpc/mercado_descidas',JSON.stringify({p_neg:neg}),null,function(st,j){ mkt.desc=(st===200&&j&&typeof j.length==='number')?j:[]; fim(); });
 }
 function vMercado(){
   var h='<h2>Mercado da zona</h2>', i;
