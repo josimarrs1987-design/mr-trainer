@@ -170,7 +170,7 @@ details summary{font-weight:600;color:var(--navy)}
 /* ES5 apenas — compatível com Safari iOS antigo */
 var KEY = 'crm_imob_v1';
 var TIPOS = ['Comprador','Proprietário (venda)','Senhorio (arrendar)','Arrendatário','Investidor','Parceiro'];
-var ORIGENS = ['OLX','Idealista','Indicação','Cartas / porta-a-porta','Instagram','Placa / Montra','Imotrust','Outro'];
+var ORIGENS = ['OLX','Idealista','Imovirtual','CustoJusto','Casa Sapo','Supercasa','Indicação','Cartas / porta-a-porta','Instagram','Placa / Montra','Imotrust','Outro'];
 var ESTADOS = ['Novo','Contactado','Qualificado','Reunião / Visita marcada','Avaliação / Proposta','Angariado / Fechado','Nutrir','Perdido'];
 var FECHADOS = ['Angariado / Fechado','Perdido'];
 var ACOES = ['Ligar','WhatsApp','Visita','Reunião de angariação','Avaliação do imóvel','Enviar imóveis','Follow-up','Assinatura CMI / CPCV','Escritura'];
@@ -408,14 +408,14 @@ function vMais(){
     h+='<div><b>☁️ Ligado</b> · '+esc(sess.email)+'</div><div class="note" style="margin:4px 0 10px">'+(lastSync?'Última sincronização: '+pad(lastSync.getHours())+':'+pad(lastSync.getMinutes()):'A sincronizar…')+'. Os dados ficam no telemóvel e são copiados para a nuvem automaticamente.</div>'+
        '<div class="btns"><button class="btn" onclick="sync(true)">🔄 Sincronizar agora</button><button class="btn ghost" onclick="logout()">Sair</button></div>';
   } else {
-    h+='<div class="note">Os dados ficam guardados neste telemóvel. Entre na sua conta para os sincronizar com a nuvem (telemóvel + computador), ver os leads da OLX e usar as notas de áudio.</div>'+
+    h+='<div class="note">Os dados ficam guardados neste telemóvel. Entre na sua conta para os sincronizar com a nuvem (telemóvel + computador), ver os leads dos portais e usar as notas de áudio.</div>'+
        '<label>Email</label><input id="lemail" type="email" autocomplete="username" autocapitalize="off">'+
        '<label>Palavra-passe</label><input id="lpw" type="password" autocomplete="current-password">'+
        '<div class="btns" style="margin-top:12px"><button class="btn gold" onclick="doLogin(\'in\')">Entrar</button><button class="btn ghost" onclick="doLogin(\'up\')">Criar conta</button></div>'+
        '<div class="note" style="margin-top:8px">Primeira vez: escolha um email e uma palavra-passe (mín. 8 caracteres) e toque em “Criar conta”. A primeira conta criada fica como única dona do CRM.</div>';
   }
   h+='</div>';
-  h+='<h3>Angariação</h3><div class="card"><button class="btn full" onclick="go(\'olx\')">🏠 Leads da OLX</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'ang\')">📄 Contratos e comissões</button><button class="btn ghost full" style="margin-top:8px" onclick="numMes=0;go(\'num\')">📈 Números do mês</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'mercado\')">📊 Mercado da zona</button><button class="btn ghost full" style="margin-top:8px" onclick="radarSel=0;go(\'radar\')">📡 Radar semanal</button></div>';
+  h+='<h3>Angariação</h3><div class="card"><button class="btn full" onclick="go(\'olx\')">🏠 Leads de anúncios</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'ang\')">📄 Contratos e comissões</button><button class="btn ghost full" style="margin-top:8px" onclick="numMes=0;go(\'num\')">📈 Números do mês</button><button class="btn ghost full" style="margin-top:8px" onclick="go(\'mercado\')">📊 Mercado da zona</button><button class="btn ghost full" style="margin-top:8px" onclick="radarSel=0;go(\'radar\')">📡 Radar semanal</button></div>';
   h+='<h3>Aparência</h3><div class="card"><div class="chips" style="flex-wrap:wrap;overflow:visible;margin:0">';
   for(var ti=0;ti<TEMAS.length;ti++) h+='<button class="chip '+(temaAtual()===TEMAS[ti][0]?'on':'')+'" onclick="setTema(\''+TEMAS[ti][0]+'\')">'+TEMAS[ti][1]+'</button>';
   h+='</div></div>';
@@ -874,10 +874,19 @@ function sync(manual){
 }
 
 /* ---------- Leads OLX (tabela leads do CRM de angariação) ---------- */
-var olx=null, olxLoading=false, olxF='Todos';
+var olx=null, olxLoading=false, olxF='Todos', olxP='Todos';
+var PORTAIS=[['olx.pt','OLX'],['idealista.','Idealista'],['imovirtual.','Imovirtual'],['custojusto.','CustoJusto'],['casa.sapo.','Casa Sapo'],['supercasa.','Supercasa'],['remax.','RE/MAX'],['era.pt','ERA'],['century21.','Century 21']];
+function portal(L){
+  var u=String(L.url||'').toLowerCase(), i;
+  for(i=0;i<PORTAIS.length;i++){ if(u.indexOf(PORTAIS[i][0])>-1) return PORTAIS[i][1]; }
+  var sct=String(L.source||'').toLowerCase();
+  for(i=0;i<PORTAIS.length;i++){ if(PORTAIS[i][1].toLowerCase().replace(/[^a-z]/g,'')===sct.replace(/[^a-z]/g,'')) return PORTAIS[i][1]; }
+  return L.source?String(L.source).charAt(0).toUpperCase()+String(L.source).slice(1):'Outro';
+}
+function origemDe(L){ var p=portal(L); return ORIGENS.indexOf(p)>-1?p:'Outro'; }
 function loadOlx(){
   olxLoading=true;
-  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,title,price,area_m2,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
+  rest('GET','/rest/v1/leads?select=id,stage,notes,listings!leads_listing_id_fkey(id,source,title,price,area_m2,tipologia,freguesia,concelho,url,score,negocio,is_active,fora_do_alvo,sem_imobiliarias,republicado,posted_at)&stage=eq.novo&do_not_contact=eq.false&limit=300',null,null,function(st,rows){
     olxLoading=false;
     if(st===200 && rows){
       olx=[];
@@ -891,7 +900,7 @@ var olxHideNo=false, lastDis=null;
 function diasDesde(iso){ if(!iso) return null; var t=Date.parse(iso); if(isNaN(t)) return null; return Math.max(0, Math.floor((Date.now()-t)/86400000)); }
 function findLead(leadId){ for(var i=0;i<olx.length;i++){ if(olx[i].lead===leadId) return i; } return -1; }
 function vOlx(){
-  var h='<h2>Leads OLX</h2>';
+  var h='<h2>Leads de anúncios</h2>';
   if(!sess) return h+'<div class="empty">Entre na conta (separador Mais) para ver os leads.</div>';
   if(olx===null){ if(!olxLoading) loadOlx(); return h+'<div class="spin">A carregar…</div>'; }
   var neg={}, i, ks=['Todos'];
@@ -899,6 +908,8 @@ function vOlx(){
   h+='<div class="chips">';
   for(i=0;i<ks.length;i++) h+='<button class="chip '+(olxF===ks[i]?'on':'')+'" onclick="olxF=\''+esc(ks[i])+'\';render()">'+esc(ks[i])+'</button>';
   h+='<button class="chip '+(olxHideNo?'on':'')+'" onclick="olxHideNo=!olxHideNo;render()">Esconder “sem agências”</button>';
+  var pc={}, ps=['Todos']; for(i=0;i<olx.length;i++){ var pp=portal(olx[i]); if(!pc[pp]){ pc[pp]=0; ps.push(pp); } pc[pp]++; }
+  if(ps.length>2){ h+='</div><div class="chips">'; for(i=0;i<ps.length;i++) h+='<button class="chip '+(olxP===ps[i]?'on':'')+'" onclick="olxP=\''+esc(ps[i])+'\';render()">'+esc(ps[i])+(i?' ('+pc[ps[i]]+')':'')+'</button>'; }
   h+='<button class="chip" onclick="olx=null;lastDis=null;render()">↻ Atualizar</button></div>';
   if(lastDis) h+='<button class="btn ghost sm full" style="margin-bottom:10px" onclick="undoLead()">↩︎ Anular: “'+esc(String(lastDis.L.title||'anúncio').substring(0,40))+'”</button>';
   var n2=0;
@@ -906,12 +917,13 @@ function vOlx(){
     var L=olx[i];
     if(olxF!=='Todos' && (L.negocio||'outro')!==olxF) continue;
     if(olxHideNo && L.sem_imobiliarias) continue;
+    if(olxP!=='Todos' && portal(L)!==olxP) continue;
     n2++;
     var loc=[L.tipologia,L.freguesia,L.concelho].join(' · ').replace(/^( · )+|( · )+$/g,'').replace(/( · ){2,}/g,' · ');
     var okUrl=L.url && /^https?:\/\//.test(L.url), dd=diasDesde(L.posted_at), q="'"+esc(L.lead)+"'";
     h+='<div class="card"><div class="name" style="white-space:normal">'+esc(L.title||'Anúncio sem título')+'</div>'+
        '<div class="sub">'+(L.price?esc(Number(L.price).toLocaleString('pt-PT'))+' € · ':'')+esc(loc)+'</div>'+
-       '<div><span class="tag gold">Score '+esc(L.score||0)+'</span>'+olxMkt(L)+(L.negocio?'<span class="tag">'+esc(L.negocio)+'</span>':'')+
+       '<div><span class="tag">'+esc(portal(L))+'</span><span class="tag gold">Score '+esc(L.score||0)+'</span>'+olxMkt(L)+(L.negocio?'<span class="tag">'+esc(L.negocio)+'</span>':'')+
        (dd!==null?'<span class="tag">há '+dd+(dd===1?' dia':' dias')+'</span>':'')+
        (L.republicado?'<span class="tag blue">Republicado</span>':'')+
        (L.sem_imobiliarias?'<span class="tag red">Dispensa agências</span>':'')+
@@ -987,8 +999,8 @@ function convLead(leadId, contactado){
   var arr=/arrend|alug/i.test(L.negocio||'');
   var nome=('Proprietário '+(L.tipologia||'')+' '+(L.freguesia||'')).replace(/\s+/g,' ').replace(/^\s+|\s+$/g,'');
   pendingLead=leadId;
-  openForm(null, {nome:nome, tel:'', email:'', tipo:arr?'Senhorio (arrendar)':'Proprietário (venda)', origem:'OLX', zona:zona, estado:contactado?'Contactado':'Novo',
-    interesse:L.title||'', orcamento:L.price||'', notas:(L.url||'')+(contactado?'\nMensagem enviada pela OLX.':'')});
+  openForm(null, {nome:nome, tel:'', email:'', tipo:arr?'Senhorio (arrendar)':'Proprietário (venda)', origem:origemDe(L), zona:zona, estado:contactado?'Contactado':'Novo',
+    interesse:L.title||'', orcamento:L.price||'', notas:(L.url||'')+(contactado?'\nMensagem enviada pelo '+portal(L)+'.':'')});
 }
 function markLead(leadId){
   rest('PATCH','/rest/v1/leads?id=eq.'+encodeURIComponent(leadId),JSON.stringify({stage:'contactado'}),'return=minimal',function(){});
