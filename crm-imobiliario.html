@@ -311,7 +311,7 @@ function vHoje(){
   h+='<div class="stats"><div class="stat"><b>'+hoje.length+'</b><span>Hoje</span></div>'+
      '<div class="stat '+(atrasados.length?'alert':'')+'"><b>'+atrasados.length+'</b><span>Atrasados</span></div>'+
      '<div class="stat"><b>'+ativos+'</b><span>Ativos</span></div></div>';
-  h+=alertasHoje();
+  h+=alertasHoje()+matchesHoje();
   var ct=contratosAlerta();
   if(ct.length){ h+='<h3 style="color:var(--red)">📄 Contratos a terminar ('+ct.length+')</h3>'; for(i=0;i<ct.length;i++) h+=angCard(ct[i]); }
   if(sem.length){ h+='<h3 style="color:var(--red)">⚠️ Sem agendamento ('+sem.length+')</h3>'; for(i=0;i<sem.length;i++) h+=contactCard(sem[i]); }
@@ -559,12 +559,14 @@ function readAg(){
   if(!d||!h) return null;
   return {id:uid(), d:d+'T'+h, tipo:v('atipo'), nota:v('anota'), feito:false};
 }
-var pendingLead=null;
+var pendingLead=null, pendingProcura=null, pendingAg=null;
 function openForm(id, preset){
   var c=id?byId(id):null; var novo=!c;
-  if(!preset) pendingLead=null;
+  if(!preset){ pendingLead=null; pendingProcura=null; pendingAg=null; }
   c=c||preset||{nome:'',tel:'',email:'',tipo:'Proprietário (venda)',origem:'OLX',zona:'Alfragide',estado:'Novo',interesse:'',orcamento:'',notas:''};
   var h='<div class="sheet-h"><h2>'+(novo?'Novo contacto':'Editar contacto')+'</h2><button class="x" onclick="closeModal()">×</button></div>';
+  if(novo && !preset) h+='<button class="btn full" style="margin-bottom:6px" onclick="openQuickIA()">✨ Criar a falar ou a escrever (IA)</button><div class="note" style="text-align:center;margin-bottom:4px">ou preencha à mão:</div>';
+  if(novo && preset && preset._ia) h+='<div class="card note" style="border-color:var(--gold)">✨ Preenchido pela IA — confirme os dados antes de guardar.'+(preset._tx?'<details style="margin-top:6px;border:0;padding:0;background:none"><summary>Ver o que foi dito</summary><div style="margin-top:6px;white-space:pre-wrap">'+esc(preset._tx)+'</div></details>':'')+'</div>';
   h+='<label>Nome *</label><input id="fnome" value="'+esc(c.nome)+'" placeholder="Nome do contacto">';
   h+='<div class="g2"><div><label>Telemóvel</label><input id="ftel" type="tel" value="'+esc(c.tel)+'" placeholder="912 345 678"></div>'+
      '<div><label>Email</label><input id="femail" type="email" value="'+esc(c.email)+'"></div></div>';
@@ -575,7 +577,8 @@ function openForm(id, preset){
   h+='<label>Imóvel / o que procura</label><input id="finteresse" value="'+esc(c.interesse)+'" placeholder="Ex.: T2 em Queluz · Moradia T3+ Oeiras">';
   h+='<label>Valor (€) — preço do imóvel ou orçamento</label><input id="forc" type="number" inputmode="numeric" value="'+esc(c.orcamento)+'">';
   h+='<label>Notas</label><textarea id="fnotas">'+esc(c.notas)+'</textarea>';
-  if(novo) h+=agFields(null, true);
+  if(novo && pendingProcura) h+='<div class="card" style="margin-top:12px"><b>🔎 O que procura</b><div class="sub" style="white-space:normal">'+esc(procuraTxt({procura:pendingProcura}))+'</div><div class="note">Fica guardado para cruzar com imóveis (só para compradores).</div></div>';
+  if(novo) h+=agFields(pendingAg, true);
   h+='<button class="btn gold full" style="margin-top:16px" onclick="saveForm('+(novo?'null':'\''+id+'\'')+')">Guardar</button>';
   openModal(h);
 }
@@ -589,7 +592,9 @@ function saveForm(id){
     a=readAg();
     if(!a && !isClosed(c)){ toast('Marque a data e hora do próximo passo'); return; }
     if(a){ c.ag.push(a); addCal=document.getElementById('acal').checked; }
-    c.hist.push({d:nowLocal(), canal:'Nota', txt:'Contacto criado ('+c.origem+')'});
+    c.hist.push({d:nowLocal(), canal:'Nota', txt:'Contacto criado ('+c.origem+')'+(pendingAg||pendingProcura?' com IA':'')});
+    if(pendingProcura && comprador(c)) c.procura=pendingProcura;
+    pendingProcura=null; pendingAg=null;
     db.contacts.push(c);
     if(pendingLead){ markLead(pendingLead); pendingLead=null; }
   }
@@ -1239,6 +1244,7 @@ function openImvFicha(id){
   h+='<div class="btns">'+(m.link&&/^https?:\/\//.test(m.link)?'<a class="btn ghost sm" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="'+esc(m.link)+'">Ver anúncio</a>':'')+
      '<button class="btn ghost sm" onclick="openImv('+q+')">Editar</button></div>';
   h+='<h3>Face ao mercado</h3><div id="mktbox">'+mktBox(m)+'</div>';
+  if(m.dono && byId(m.dono)) h+='<button class="btn ghost full" style="margin-top:8px" onclick="openRelatorio(\''+m.dono+'\',\''+m.id+'\')">📄 Relatório de mercado para o proprietário</button>';
   var eI=(m.estudos||[])[0];
   h+='<h3>Estudo do Analista</h3>'+(eI?estudoCard(eI,'i',m.id):'')+'<button class="btn ghost full" onclick="openEstudo(\'i\',\''+m.id+'\')">＋ '+(eI?'Importar estudo mais recente':'Importar estudo do Analista')+'</button>';
   // compradores compatíveis
@@ -1744,6 +1750,7 @@ function openDossier(cid){
   var vis=0; for(i=0;i<ims.length;i++){ for(var k=0;k<db.contacts.length;k++){ if(visOf(db.contacts[k],ims[i].id)) vis++; } }
   if(ims.length) pts.push(vis?vis+' apresentação(ões) do imóvel a compradores registadas no CRM.':'Ainda sem apresentações a compradores registadas.');
   if(pts.length) h+='<h3>Pontos para a conversa</h3><div class="card">'+pts.map(function(p){ return '<div style="margin:4px 0">• '+esc(p)+'</div>'; }).join('')+'</div>';
+  if(vendedor(c)) h+='<button class="btn gold full" style="margin-top:14px" onclick="openRelatorio(\''+cid+'\')">📄 Relatório de mercado para o proprietário</button>';
   h+='<div class="note" style="margin-top:12px">Os números de mercado são preços pedidos em anúncios, não preços de venda. O estudo é um apoio: o valor final decide-se na visita.</div>';
   openModal(h);
   getMkt(zona,tip,neg,function(d){ var el=document.getElementById('dosmkt'); if(!el) return;
@@ -1927,6 +1934,256 @@ function depoisFollow(cid){
   else { openContact(cid); toast('Mensagem registada'); }
 }
 
+
+/* ================= CONTACTO NOVO A FALAR OU A ESCREVER (IA) ================= */
+var qiRec=null, qiChunks=[], qiRes=null;
+function openQuickIA(){
+  var h='<div class="sheet-h"><h2>Contacto novo com IA</h2><button class="x" onclick="openForm()">×</button></div>';
+  if(!sess){ openModal(h+'<div class="card">Para usar a IA, entre primeiro na sua conta.</div><button class="btn gold full" onclick="closeModal();go(\'mais\')">Entrar na conta</button>'); return; }
+  h+='<div class="note" style="margin-bottom:8px">Diga ou escreva tudo de uma vez. A IA preenche a ficha, o que procura e o próximo passo; depois confirma.</div>';
+  if(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+    h+='<button class="btn gold full" id="qirec" onclick="qiToggle()">🎙️ Gravar agora</button>';
+  h+='<input type="file" id="qifile" accept="audio/*,.m4a,.mp3,.ogg,.opus,.wav,.webm" style="display:none" onchange="var f=this.files[0]; if(f) qiSend(f,f.name||\'audio.m4a\',\'\')">';
+  h+='<button class="btn ghost full" style="margin-top:8px" onclick="document.getElementById(\'qifile\').click()">📂 Carregar áudio</button>';
+  h+='<label>Ou escreva / dite pelo microfone do teclado</label><textarea id="qitxt" style="min-height:120px" placeholder="Ex.: Nova compradora, Maria Silva, 912 345 678, indicada pela Marlene. Procura T3 em Oeiras ou Carnaxide até 450 mil, com crédito aprovado. Ligar amanhã às 18h."></textarea>';
+  h+='<button class="btn full" style="margin-top:8px" onclick="var t=v(\'qitxt\'); if(t.length<5){toast(\'Escreva os dados do contacto\');return;} qiSend(null,\'\',t)">✨ Criar ficha</button>';
+  openModal(h);
+}
+function qiToggle(){
+  var b=document.getElementById('qirec');
+  if(qiRec && qiRec.state==='recording'){ qiRec.stop(); return; }
+  navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+    qiChunks=[]; qiRec=new MediaRecorder(stream);
+    qiRec.ondataavailable=function(e){ if(e.data && e.data.size) qiChunks.push(e.data); };
+    qiRec.onstop=function(){
+      var tr=stream.getTracks(); for(var i=0;i<tr.length;i++) tr[i].stop();
+      var type=(qiRec.mimeType||'audio/mp4').split(';')[0], ext=type.indexOf('webm')>-1?'webm':(type.indexOf('ogg')>-1?'ogg':'m4a');
+      var blob=new Blob(qiChunks,{type:type}); qiRec=null;
+      if(!blob.size){ toast('Gravação vazia'); return; }
+      qiSend(blob,'contacto.'+ext,'');
+    };
+    qiRec.start(); if(b){ b.className='btn full rec'; b.innerHTML='⏹️ Parar e criar ficha'; }
+  })['catch'](function(){ toast('Sem acesso ao microfone'); });
+}
+function qiSend(blob, name, text){
+  openModal('<div class="sheet-h"><h2>Contacto novo com IA</h2><button class="x" onclick="openQuickIA()">×</button></div><div class="spin">✨ A preparar a ficha…</div>');
+  var fd=new FormData();
+  if(blob) fd.append('file', blob, name); if(text) fd.append('text', text);
+  fd.append('now', nowLocal()); fd.append('weekday', DIAS_L[new Date().getDay()]);
+  fd.append('tipos', JSON.stringify(TIPOS)); fd.append('origens', JSON.stringify(ORIGENS)); fd.append('zonas', JSON.stringify(ZONAS)); fd.append('acoes', JSON.stringify(ACOES));
+  withToken(function(t){
+    if(!t){ openQuickIA(); toast('Sem ligação / sessão'); return; }
+    xhr('POST', SB_URL+'/functions/v1/contacto-ia', {apikey:SB_KEY, Authorization:'Bearer '+t}, fd, function(st,j){
+      if(st!==200 || !j || j.error){
+        var e=j&&j.error; openQuickIA();
+        toast(e==='sem_chave'?'A IA ainda não está ativada':(e==='vazio'?'Não se percebeu nada — tente de novo':(e==='transcricao'?'Formato de áudio não suportado':(st===0?'Sem ligação à internet':'A IA não respondeu — tente de novo'))));
+        return;
+      }
+      qiRes=j; var dup=dupTel(j.tel);
+      if(dup){
+        openModal('<div class="sheet-h"><h2>Este contacto já existe?</h2><button class="x" onclick="openQuickIA()">×</button></div>'+
+          '<div class="card">O telemóvel '+esc(j.tel)+' já está na ficha de <b>'+esc(dup.nome)+'</b>.</div>'+
+          '<button class="btn gold full" onclick="openContact(\''+dup.id+'\')">Abrir '+esc(dup.nome)+'</button>'+
+          '<button class="btn ghost full" style="margin-top:8px" onclick="qiFill()">Criar novo na mesma</button>');
+        return;
+      }
+      qiFill();
+    });
+  });
+}
+function dupTel(t){
+  var d=String(t||'').replace(/\D/g,'').slice(-9); if(d.length<9) return null;
+  for(var i=0;i<db.contacts.length;i++){ if(String(db.contacts[i].tel||'').replace(/\D/g,'').slice(-9)===d) return db.contacts[i]; }
+  return null;
+}
+function qiFill(){
+  var j=qiRes; if(!j) return;
+  pendingLead=null;
+  pendingProcura=j.procura||null;
+  pendingAg=j.proximo_passo?{d:j.proximo_passo.data+'T'+j.proximo_passo.hora, tipo:j.proximo_passo.tipo, nota:j.proximo_passo.nota}:null;
+  openForm(null, {_ia:true, _tx:j.transcricao, nome:j.nome, tel:j.tel, email:j.email, tipo:j.tipo, origem:j.origem, zona:j.zona, estado:'Novo', interesse:j.interesse, orcamento:j.orcamento||'', notas:j.notas});
+}
+
+/* ================= IMÓVEIS COMPATÍVEIS PARA COMPRADORES ================= */
+function listingMatch(L, c){
+  var p=c.procura; if(!p || !L || !L.price) return false;
+  var neg=(p.negocio||(c.tipo==='Arrendatário'?'Arrendamento':'Venda'))==='Arrendamento'?'arrendamento':'venda';
+  if(negKey(L.negocio)!==neg) return false;
+  var qm=String(L.tipologia||'').match(/T\s?(\d)/i);
+  if(p.quartos!==''&&p.quartos!=null && qm && Number(qm[1])<Number(p.quartos)) return false;
+  var mor=/moradia|vivenda|casa t\d|quinta/i.test(L.title||'');
+  if(p.tipo==='Moradia' && !mor) return false;
+  if(p.tipo==='Apartamento' && mor) return false;
+  if(p.max && Number(L.price)>Number(p.max)*1.05) return false;
+  if(p.min && Number(L.price)<Number(p.min)*0.9) return false;
+  if(p.zonas && p.zonas.length){ var w=((L.freguesia||'')+' '+(L.concelho||'')).toLowerCase(), ok=false;
+    for(var i=0;i<p.zonas.length;i++){ if(w.indexOf(String(p.zonas[i]).toLowerCase())>-1) ok=true; } if(!ok) return false; }
+  if((c.ignL||[]).indexOf(L.id)>-1 || (c.envL||[]).indexOf(L.id)>-1) return false;
+  return true;
+}
+function anunciosPara(c){
+  var out=[], i, L, f; if(!olx) return out;
+  for(i=0;i<olx.length;i++){ L=olx[i]; f=L.first_seen_at||L.posted_at;
+    if(f && Date.now()-Date.parse(f)>14*86400000) continue;
+    if(listingMatch(L,c)) out.push(L); }
+  out.sort(function(a,b){ return Date.parse(b.first_seen_at||b.posted_at||0)-Date.parse(a.first_seen_at||a.posted_at||0); });
+  return out;
+}
+function matchesDe(c){ return {crm:imoveisPara(c).filter(function(x){ return !x.r.vis; }), por:anunciosPara(c)}; }
+function matchesHoje(){
+  var cards=[], i, c, m;
+  for(i=0;i<db.contacts.length;i++){ c=db.contacts[i];
+    if(!comprador(c) || !c.procura || isClosedBuyer(c)) continue;
+    m=matchesDe(c); if(m.crm.length||m.por.length) cards.push({c:c,m:m}); }
+  if(!cards.length) return '';
+  cards.sort(function(a,b){ return (b.m.crm.length+b.m.por.length)-(a.m.crm.length+a.m.por.length); });
+  var h='<h3>🏠 Imóveis para os teus compradores ('+cards.length+')</h3>';
+  for(i=0;i<cards.length;i++){ var x=cards[i], t=[];
+    if(x.m.crm.length) t.push(x.m.crm.length+(x.m.crm.length===1?' imóvel do CRM':' imóveis do CRM'));
+    if(x.m.por.length) t.push(x.m.por.length+(x.m.por.length===1?' anúncio novo':' anúncios novos'));
+    h+='<div class="card tap" onclick="openMatches(\''+x.c.id+'\')"><div class="row"><div class="av">'+esc(initials(x.c.nome))+'</div><div class="grow"><div class="name">'+esc(x.c.nome)+'</div><div class="sub">'+esc(procuraTxt(x.c))+'</div></div><span class="note">Ver ›</span></div>'+
+       '<div><span class="tag blue">'+esc(t.join(' · '))+' por enviar</span></div></div>'; }
+  return h;
+}
+function openMatches(cid){
+  var c=byId(cid); if(!c) return; var q="'"+cid+"'", m=matchesDe(c), i;
+  var h='<div class="sheet-h"><h2>Imóveis para '+esc(String(c.nome).split(' ')[0])+'</h2><button class="x" onclick="closeModal()">×</button></div>';
+  h+='<div class="note" style="margin-bottom:8px">Procura: '+esc(procuraTxt(c))+' · <a href="#" onclick="procuraForm('+q+');return false">editar</a></div>';
+  if(m.crm.length){ h+='<h3>Do teu CRM ('+m.crm.length+')</h3>';
+    for(i=0;i<m.crm.length;i++){ var im=m.crm[i].m;
+      h+='<div class="ap"><div class="t" style="white-space:normal;cursor:pointer" onclick="openImvFicha(\''+im.id+'\')">'+esc(imvTitulo(im))+'</div><div class="sub">'+esc(imvLinha(im))+'</div>'+(m.crm[i].r.acima?'<span class="tag red">Ligeiramente acima do orçamento</span>':'')+
+         '<div class="btns" style="margin-top:8px"><button class="btn gold sm" onclick="propor('+q+',\''+im.id+'\',\'c\')">💬 Enviar ao cliente</button><button class="btn ghost sm" onclick="ignImv('+q+',\''+im.id+'\')">Não interessa</button></div></div>'; } }
+  if(m.por.length){ h+='<h3>Anúncios novos nos portais ('+m.por.length+')</h3>';
+    for(i=0;i<m.por.length;i++){ var L=m.por[i], ok=L.url&&/^https?:\/\//.test(L.url), dd=diasDesde(L.first_seen_at||L.posted_at);
+      h+='<div class="ap"><div class="t" style="white-space:normal">'+esc(L.title||'Anúncio')+'</div><div class="sub" style="white-space:normal">'+(L.price?eur(L.price)+' · ':'')+esc([L.tipologia,L.freguesia].filter(function(x){return x;}).join(' · '))+'</div>'+
+         '<div><span class="tag">'+esc(portal(L))+'</span>'+(dd!==null?'<span class="tag">há '+dd+(dd===1?' dia':' dias')+'</span>':'')+'</div>'+
+         '<div class="btns" style="margin-top:8px"><button class="btn gold sm" onclick="enviarAnuncio('+q+',\''+esc(L.id)+'\')">💬 Enviar ao cliente</button>'+(ok?'<a class="btn ghost sm" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="'+esc(L.url)+'">Ver</a>':'')+'</div>'+
+         '<div class="btns" style="margin-top:6px"><button class="btn ghost sm" onclick="registarAnuncio(\''+esc(L.id)+'\')">＋ Registar imóvel</button><button class="btn ghost sm" onclick="ignAnuncio('+q+',\''+esc(L.id)+'\')">Não interessa</button></div></div>'; } }
+  if(!m.crm.length && !m.por.length) h+='<div class="empty">Já enviou ou dispensou todos os imóveis compatíveis.</div>';
+  openModal(h);
+}
+function findListing(lid){ for(var i=0;i<(olx||[]).length;i++){ if(String(olx[i].id)===String(lid)) return olx[i]; } return null; }
+function ignImv(cid, imvId){
+  var c=byId(cid); c.vis=c.vis||[]; var vv=visOf(c,imvId);
+  if(vv) vv.estado='Descartado'; else c.vis.push({id:uid(), imv:imvId, d:nowLocal(), estado:'Descartado', op:'', nota:''});
+  save(c); render(); openMatches(cid);
+}
+function ignAnuncio(cid, lid){ var c=byId(cid); c.ignL=c.ignL||[]; c.ignL.push(lid); if(c.ignL.length>300) c.ignL=c.ignL.slice(-300); save(c); render(); openMatches(cid); }
+function enviarAnuncio(cid, lid){
+  var c=byId(cid), L=findListing(lid); if(!c||!L) return; var q="'"+cid+"'";
+  var txt=[ola(c)+' Encontrei este imóvel que pode interessar-lhe:','', '🏠 '+(L.title||'Imóvel'), [L.price?eur(L.price):'', L.tipologia, L.freguesia].filter(function(x){return x;}).join(' · ')];
+  if(L.url) txt.push(L.url); txt.push('','Quer que tente marcar uma visita? Diga-me que dias lhe dão jeito.');
+  var h='<div class="sheet-h"><h2>Enviar anúncio</h2><button class="x" onclick="openMatches('+q+')">×</button></div>';
+  h+='<div class="note" style="margin-bottom:8px">Para: <b>'+esc(c.nome)+'</b>'+(c.tel?' · '+esc(c.tel):'')+'</div><textarea id="mtxt" style="min-height:200px">'+esc(txt.join('\n'))+'</textarea>';
+  h+='<button class="btn gold full" style="margin-top:10px" onclick="waSend('+q+',\'Anúncio enviado: '+esc(String(L.title||'').replace(/'/g,'')).slice(0,60)+'\');marcaEnviado('+q+',\''+esc(lid)+'\')">💬 Enviar no WhatsApp</button>';
+  h+='<div class="note" style="margin-top:8px">É um anúncio de outra agência ou de um particular: confirme a disponibilidade e a partilha antes de marcar a visita.</div>';
+  openModal(h);
+}
+function marcaEnviado(cid, lid){ var c=byId(cid); c.envL=c.envL||[]; c.envL.push(lid); if(c.envL.length>300) c.envL=c.envL.slice(-300); save(c); render(); openMatches(cid); }
+function registarAnuncio(lid){
+  var L=findListing(lid); if(!L) return;
+  var zona='Outra', w=((L.freguesia||'')+' '+(L.concelho||'')).toLowerCase(), i;
+  for(i=0;i<ZONAS.length;i++){ if(ZONAS[i]!=='Outra' && w.indexOf(ZONAS[i].toLowerCase())>-1){ zona=ZONAS[i]; break; } }
+  var qm=String(L.tipologia||'').match(/T\s?(\d)/i);
+  openImv(null,{titulo:L.title||'', negocio:negKey(L.negocio)==='arrendamento'?'Arrendamento':'Venda', tipo:/moradia|vivenda/i.test(L.title||'')?'Moradia':'Apartamento', quartos:qm?qm[1]:'', zona:zona, morada:L.freguesia||'', preco:L.price||'', area:L.area_m2?Math.round(L.area_m2):'', origem:portal(L)==='OLX'?'Particular':'Partilha (outra agência)', agencia:'', link:L.url||'', estado:'Disponível', dono:'', extras:[], notas:''});
+  if(sess && L.url) fillFromLink();
+}
+
+/* ================= RELATÓRIO DE MERCADO PARA O PROPRIETÁRIO ================= */
+var AGENTE={nome:'Josimar Souza', cargo:'Consultor Imobiliário', agencia:'Imotrust', tel:'937 100 471', email:'josimar.souza@imotrust.pt'};
+var relHtml='';
+function estudoDe(c, m){ return (m&&m.estudos&&m.estudos[0]) || (c.estudos&&c.estudos[0]) || null; }
+function openRelatorio(cid, imvId){
+  var c=byId(cid); if(!c) return; var q="'"+cid+"'", i;
+  var ims=db.imoveis.filter(function(x){ return x.dono===cid; });
+  var m=imvId?imvById(imvId):(ims[0]||null), est=estudoDe(c,m);
+  var h='<div class="sheet-h"><h2>Relatório para o proprietário</h2><button class="x" onclick="openContact('+q+')">×</button></div>';
+  h+='<div class="note" style="margin-bottom:8px">Um documento com a sua marca para mostrar na reunião ou enviar em PDF.</div>';
+  if(!m){ openModal(h+'<div class="card">Registe primeiro o imóvel deste proprietário (preço, área, zona) para comparar com o mercado.</div><button class="btn gold full" onclick="imvDeDono('+q+')">＋ Registar imóvel</button>'); return; }
+  if(ims.length>1){ h+='<label>Imóvel</label><select id="rimv" onchange="openRelatorio('+q+',this.value)">';
+    for(i=0;i<ims.length;i++) h+='<option value="'+esc(ims[i].id)+'"'+(ims[i].id===m.id?' selected':'')+'>'+esc(imvTitulo(ims[i]))+'</option>';
+    h+='</select>'; }
+  else h+='<div class="card"><b>'+esc(imvTitulo(m))+'</b><div class="sub">'+esc(imvLinha(m))+'</div></div>';
+  var sug=est&&est.valor?Math.round(est.valor/1000)*1000:(m.preco||'');
+  h+='<label>Preço de venda recomendado (€)</label><input id="rpre" type="number" inputmode="numeric" value="'+esc(sug)+'" placeholder="opcional">';
+  h+='<label>Mensagem para o proprietário</label><textarea id="rmsg" style="min-height:110px">'+esc('Obrigado pela confiança. Este estudo reúne os imóveis à venda na sua zona e o que eles nos dizem sobre o preço certo para o seu. Um preço bem posicionado desde o primeiro dia atrai mais visitas e propostas, e reduz o tempo de venda.')+'</textarea>';
+  h+='<label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)"><input type="checkbox" id="rcmp" checked style="width:auto"> Incluir anúncios comparáveis</label>';
+  if(est) h+='<label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)"><input type="checkbox" id="rest" checked style="width:auto"> Incluir valor estimado e cenários do estudo do Analista</label>';
+  else h+='<div class="note" style="margin-top:6px">Sem estudo do Analista: o relatório usa só os dados de mercado do CRM. Pode importar um estudo no Dossier.</div>';
+  h+='<button class="btn gold full" style="margin-top:14px" id="rgen" onclick="gerarRelatorio('+q+',\''+m.id+'\')">📄 Gerar relatório</button>';
+  openModal(h);
+}
+function gerarRelatorio(cid, imvId){
+  var c=byId(cid), m=imvById(imvId); if(!c||!m) return;
+  var o={preco:v('rpre'), msg:v('rmsg'), cmp:(document.getElementById('rcmp')||{}).checked, est:(document.getElementById('rest')||{}).checked};
+  var b=document.getElementById('rgen'); if(b) b.innerHTML='⏳ A juntar os dados…';
+  var q=mktFor(m);
+  getMkt(q.zona,q.tip,q.neg,function(d){
+    relHtml=relatorioHtml(c,m,o,d,q);
+    c.hist=c.hist||[]; c.hist.push({d:nowLocal(), canal:'Nota', txt:'Relatório de mercado gerado — '+imvTitulo(m)}); save(c);
+    var h='<div class="sheet-h"><h2>Relatório pronto</h2><button class="x" onclick="openRelatorio(\''+cid+'\',\''+imvId+'\')">×</button></div>';
+    h+='<iframe id="relframe" style="width:100%;height:58vh;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>';
+    h+='<button class="btn gold full" style="margin-top:10px" onclick="relPrint()">🖨️ Guardar PDF / Imprimir</button>';
+    h+='<div class="btns" style="margin-top:8px"><button class="btn ghost" onclick="relAbrir()">Abrir numa página</button><button class="btn ghost" onclick="download(relHtml,\'estudo-mercado-'+esc(String(c.nome).split(' ')[0]).replace(/[^\w]/g,'')+'.html\',\'text/html;charset=utf-8\')">Descarregar</button></div>';
+    h+='<div class="note" style="margin-top:8px">No iPhone: Guardar PDF → no ecrã de impressão, toque em Partilhar → Guardar em Ficheiros ou enviar por WhatsApp.</div>';
+    openModal(h);
+    var f=document.getElementById('relframe'); try{ f.srcdoc=relHtml; }catch(e){}
+    if(!('srcdoc' in f)){ var dd=f.contentWindow.document; dd.open(); dd.write(relHtml); dd.close(); }
+  });
+}
+function relPrint(){ var f=document.getElementById('relframe'); try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ relAbrir(); } }
+function relAbrir(){ var w=null; try{ w=window.open('','_blank'); }catch(e){} if(w&&w.document){ w.document.open(); w.document.write(relHtml); w.document.close(); } else download(relHtml,'estudo-mercado.html','text/html;charset=utf-8'); }
+function relatorioHtml(c, m, o, d, q){
+  var cs=getComputedStyle(document.body), cv=function(n,def){ var x=cs.getPropertyValue(n); return (x&&x.replace(/\s/g,''))||def; };
+  var navy=cv('--navy','#14161B'), gold=cv('--gold','#C2A26B'), onacc=cv('--onacc','#14161B');
+  var est=o.est?estudoDe(c,m):null, arr=m.negocio==='Arrendamento', e=imvEur(m), hoje=new Date(), i;
+  var usaTip=d&&d.tip&&d.tip.n>=3, b=d?(usaTip?d.tip:d.todas):null;
+  function stat(lbl,val,sub){ return '<div class="st"><div class="sl">'+lbl+'</div><div class="sv">'+val+'</div>'+(sub?'<div class="ss">'+sub+'</div>':'')+'</div>'; }
+  var h='<!DOCTYPE html><html lang="pt-PT"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Estudo de mercado · '+esc(imvTitulo(m))+'</title>'+
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:wght@600&display=swap">'+
+    '<style>:root{--ink:#17191E;--line:#E5E1D8;--muted:#6F6A60}*{box-sizing:border-box}body{margin:0;font-family:Inter,-apple-system,sans-serif;color:#17191E;background:#F3F1EC;font-size:13.5px;line-height:1.5}'+
+    '.pg{max-width:780px;margin:0 auto;background:#fff}.hd{background:'+navy+';color:#fff;padding:28px 32px}.hd small{color:'+gold+';letter-spacing:.2em;text-transform:uppercase;font-size:11px;font-weight:700}'+
+    '.hd h1{font-family:"Playfair Display",Georgia,serif;font-weight:600;font-size:30px;margin:6px 0 4px}.hd .ag{color:#CFCAC0;font-size:12.5px}.bd{padding:24px 32px 8px}'+
+    'h2{font-family:"Playfair Display",Georgia,serif;font-weight:600;font-size:19px;margin:22px 0 10px;padding-bottom:6px;border-bottom:2px solid '+gold+'}'+
+    '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.st{background:#F7F5F0;border-radius:10px;padding:10px 12px}.sl{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#6F6A60}.sv{font-size:19px;font-weight:700}.ss{font-size:11.5px;color:#6F6A60}'+
+    '.hl{background:'+gold+';color:'+onacc+';border-radius:12px;padding:14px 16px;margin:14px 0}.hl b{font-size:22px;font-family:"Playfair Display",Georgia,serif}'+
+    'table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:6px 5px;border-bottom:1px solid #E5E1D8;vertical-align:top}th{color:#6F6A60;font-weight:600}a{color:#17191E}'+
+    '.tag{display:inline-block;background:#F1EEE7;border-radius:12px;padding:2px 9px;font-size:11.5px;margin:2px 4px 2px 0}.nt{font-size:11px;color:#6F6A60;margin-top:18px;border-top:1px solid #E5E1D8;padding-top:10px}'+
+    '.ft{background:'+navy+';color:#fff;padding:16px 32px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:12.5px;margin-top:18px}.ft b{color:'+gold+'}'+
+    '.bar{position:sticky;top:0;background:#fff;padding:10px;text-align:center;border-bottom:1px solid #ddd}.bar button{background:'+navy+';color:#fff;border:0;border-radius:10px;padding:10px 16px;font-weight:600;font-size:14px}'+
+    '@media(max-width:560px){.grid{grid-template-columns:1fr 1fr}.hd,.bd,.ft{padding-left:18px;padding-right:18px}}'+
+    '@media print{body{background:#fff}.bar{display:none}.pg{max-width:none}h2{break-after:avoid}table,.st,.hl{break-inside:avoid}@page{margin:12mm}}</style></head><body>'+
+    '<div class="bar"><button onclick="window.print()">🖨️ Guardar PDF / Imprimir</button></div><div class="pg">';
+  h+='<div class="hd"><small>Estudo de mercado · análise comparativa</small><h1>'+esc(imvTitulo(m))+'</h1><div class="ag">Preparado para '+esc(c.nome)+' · '+hoje.getDate()+' '+MESES_L[hoje.getMonth()]+' '+hoje.getFullYear()+'<br>'+esc(AGENTE.nome)+' · '+esc(AGENTE.cargo)+' · '+esc(AGENTE.agencia)+'</div></div><div class="bd">';
+  if(o.msg) h+='<p style="font-size:14px">'+esc(o.msg).replace(/\n/g,'<br>')+'</p>';
+  h+='<h2>O imóvel</h2><div class="grid">'+stat('Tipologia',esc(tipol(m)||'—'))+stat('Área',m.area?esc(m.area)+' m²':'—')+stat(arr?'Renda atual':'Preço atual',m.preco?eur(m.preco)+(arr?'/mês':''):'—',e?eurm2(e):'')+'</div>';
+  if(m.morada||m.zona) h+='<p>📍 '+esc([m.morada,m.zona&&m.zona!=='Outra'?m.zona:''].filter(function(x){return x;}).join(' · '))+'</p>';
+  if(m.extras&&m.extras.length) h+='<div>'+m.extras.map(function(x){ return '<span class="tag">'+esc(x)+'</span>'; }).join('')+'</div>';
+  if(b&&b.n){
+    h+='<h2>O mercado na sua zona</h2><p>'+(usaTip&&q.tip?esc(q.tip)+' ':'Imóveis ')+'à '+(arr?'arrendar':'venda')+' em '+esc(q.zona)+', com base em '+b.n+' anúncios ativos.</p><div class="grid">'+
+      stat('Preço mediano pedido',eurm2(b.eur_m2),b.p25&&usaTip?'metade entre '+eurm2(b.p25)+' e '+eurm2(b.p75):'')+
+      stat('Tempo no mercado',b.dias+' dias','mediana dos anúncios ativos')+
+      stat('Descidas de preço',String(b.descidas||0),'anúncios que já baixaram')+'</div>';
+    if(e){ var pct=Math.round(100*(e-b.eur_m2)/b.eur_m2);
+      h+='<div class="hl">O seu imóvel está a <b>'+eurm2(e)+'</b> — '+esc(difTxt(e,b.eur_m2))+' da zona.'+(pct>10?'<br>Acima do mercado, o imóvel tende a receber menos visitas e a ficar mais tempo à venda.':(pct<-5?'<br>Abaixo da mediana: há margem para valorizar se o estado o justificar.':'<br>Um preço alinhado com o mercado.'))+'</div>'; }
+    var cmps=o.cmp&&usaTip?(d.comps||[]).slice(0,6):[];
+    if(cmps.length){ h+='<h2>Imóveis comparáveis à venda</h2><table><tr><th>Anúncio</th><th>Área</th><th>Preço</th><th>€/m²</th><th>Dias</th></tr>';
+      for(i=0;i<cmps.length;i++){ var x=cmps[i], ok=x.url&&/^https?:\/\//.test(x.url);
+        h+='<tr><td>'+(ok?'<a href="'+esc(x.url)+'">':'')+esc(String(x.title||'Anúncio').slice(0,60))+(ok?'</a>':'')+(x.p0&&x.p0>x.price?'<br><span style="color:#A8323B">baixou de '+eur(x.p0)+'</span>':'')+'</td><td>'+Math.round(x.area)+' m²</td><td>'+eur(x.price)+'</td><td>'+Math.round(x.eur).toLocaleString('pt-PT')+'</td><td>'+x.dias+'</td></tr>'; }
+      h+='</table>'; }
+  }
+  if(est){
+    h+='<h2>Estimativa de valor</h2><div class="grid">'+(est.valor?stat('Valor de mercado estimado',est.valorTxt&&/[–\-]/.test(est.valorTxt)?esc(est.valorTxt):eur(est.valor)):'')+(est.eurm2?stat('Referência €/m²',eurm2(est.eurm2)):'')+(est.confianca?stat('Confiança',esc(est.confianca)):'')+'</div>';
+    var cen=(est.secs||[]).filter(function(s){ return /CENARIO/.test(semAcento(s.t).toUpperCase()); })[0];
+    if(cen) h+='<h2>Cenários de preço</h2><div>'+mdLite(cen.b)+'</div>';
+  }
+  if(o.preco) h+='<div class="hl">Preço '+(arr?'de renda ':'de venda ')+'recomendado: <b>'+eur(o.preco)+(arr?'/mês':'')+'</b></div>';
+  if(!arr) h+='<h2>Porquê trabalhar comigo</h2><p>Na '+esc(AGENTE.agencia)+', o prazo médio de venda é de <b>40 a 60 dias</b>. Acompanho o processo do início à escritura: preço, divulgação, visitas, negociação e documentação.</p>';
+  h+='<div class="nt">Este documento é um estudo de mercado (análise comparativa) e não uma avaliação imobiliária. Os valores de mercado baseiam-se em preços <b>pedidos</b> em anúncios ativos na data do estudo, que podem diferir dos preços de venda finais'+(est?', e num estudo com fontes públicas':'')+'. O valor final depende do estado do imóvel, confirmado na visita.</div>';
+  h+='</div><div class="ft"><span><b>'+esc(AGENTE.nome)+'</b> · '+esc(AGENTE.cargo)+' · '+esc(AGENTE.agencia)+'</span><span>'+esc(AGENTE.tel)+' · '+esc(AGENTE.email)+'</span></div></div></body></html>';
+  return h;
+}
+
 /* ================= MENSAGENS PRONTAS ================= */
 function saud(){ var h=new Date().getHours(); return h<12?'bom dia':(h<20?'boa tarde':'boa noite'); }
 function ola(c){
@@ -2059,6 +2316,7 @@ function openAudio(cid){
   h+='<label>Ou escreva / dite o texto</label><textarea id="atext" placeholder="Ex.: Falei com a proprietária, quer 285 mil pelo T2, reunião sexta às 18h…"></textarea>';
   h+='<button class="btn ghost full" style="margin-top:8px" onclick="sendText('+qid(cid)+')">Analisar texto</button>';
   h+='<button class="btn ghost full" style="margin-top:14px" onclick="openWaChat('+qid(cid)+')">💬 Analisar uma conversa inteira do WhatsApp</button>';
+  if(!cid) h+='<button class="btn ghost full" style="margin-top:8px" onclick="openQuickIA()">👤 Criar um contacto novo a falar</button>';
   h+='<div class="note" style="margin-top:12px">Áudio do WhatsApp: toque no áudio → Partilhar → Guardar em Ficheiros, e carregue-o aqui. Máx. 25 MB.</div>';
   openModal(h);
 }
