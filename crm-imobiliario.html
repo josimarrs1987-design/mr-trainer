@@ -2460,6 +2460,19 @@ function saveAudio(){
   else { openContact(c.id); toast(added.length?('Nota + '+added.length+' agendamentos guardados'):'Nota guardada'); }
 }
 
+/* ---------- mudança de endereço ---------- */
+var NOVA_APP='https://josimarsouza-imoveis.github.io/';
+function irNovaApp(){
+  var b=document.getElementById('mvbtn'); if(b) b.innerHTML='A sincronizar…';
+  function vai(){ location.href=NOVA_APP; }
+  if(sess){ sync(false); var t=0, iv=setInterval(function(){ t++; if(!syncing || t>16){ clearInterval(iv); vai(); } },500); } else vai();
+}
+(function(){
+  var d=document.createElement('div');
+  d.style.cssText='position:sticky;top:0;z-index:40;background:#C2A26B;color:#14161B;padding:10px 14px;font-size:14px;font-weight:600;display:flex;gap:10px;align-items:center;justify-content:space-between';
+  d.innerHTML='<span>A app mudou para um endereço novo.</span><button id="mvbtn" onclick="irNovaApp()" style="background:#14161B;color:#fff;border:0;border-radius:10px;padding:8px 12px;font-weight:700;font-size:14px">Abrir a nova ›</button>';
+  document.body.insertBefore(d, document.body.firstChild);
+})();
 render();
 setCloud(sess?'ok':'');
 if(sess) sync(false);
